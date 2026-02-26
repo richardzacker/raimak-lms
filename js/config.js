@@ -67,6 +67,7 @@ const Config = {
       // "antoinette.bickel@raimak.com",
       // "S.Balleste@raimak.com",
       // "B.Hinesley@raimak.com",
+      // "RichardZacker@raimak.com",
     ],
     // Anyone NOT in the admins list is treated as a standard Agent
   },
