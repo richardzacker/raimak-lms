@@ -90,9 +90,9 @@ input, select, textarea { font-family: inherit; }
 }
 
 .login-logo img {
-  height: 64px;
+  height: 80px;
   width: auto;
-  filter: brightness(0) invert(1);
+  border-radius: 8px;
 }
 
 .login-card h1 {
@@ -156,7 +156,7 @@ input, select, textarea { font-family: inherit; }
 .sidebar-brand img {
   height: 44px;
   width: auto;
-  filter: brightness(0) invert(1);
+  border-radius: 6px;
 }
 
 .sidebar-nav {
