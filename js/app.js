@@ -1049,7 +1049,7 @@ function renderLeadModal(lead) {
     </div>
     <div class="modal-footer">
       <button class="btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn-primary" onclick="${isEdit?"submitEditLead()":"submitAddLead()}">${isEdit?"Save Changes":"Add Lead"}</button>
+      <button class="btn-primary" onclick="${isEdit ? 'submitEditLead()' : 'submitAddLead()' }">${isEdit ? 'Save Changes' : 'Add Lead'}</button>
     </div>
   `;
   document.getElementById("modal-overlay").style.display = "flex";
