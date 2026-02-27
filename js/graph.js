@@ -109,7 +109,10 @@ const Graph = (() => {
       value:         f.DealValue     || f.Value        || "",
       lastContacted: f.LastContacted || null,
       createdAt:     item.createdDateTime || f.Created || null,
-      modified:      item.lastModifiedDateTime || null,
+      modified:        item.lastModifiedDateTime || null,
+      leadType:        f.LeadType         || "",
+      currentMRC:      f.CurrentMRC       || "",
+      currentProducts: f.CurrentProducts  || "",
     };
   }
 
