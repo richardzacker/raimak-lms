@@ -7,7 +7,7 @@ const State = {
   todaySales:      [],
   currentView:     "dashboard",
   filters:         { status: "all", search: "", assignedTo: "all" },
-  editingLeadID::   null,
+  editingLeadID:   null,
   loading:         false,
   role:            "agent",
   currentUser:     null,
