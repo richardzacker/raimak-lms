@@ -1,10 +1,10 @@
-// Raimak LMS - App Configuration v2.0
+// Raimak LMS - App Configuration v3.0
 
 const Config = {
 
   azure: {
     clientId:    "ad1b153f-8b6a-4f1c-8ab2-58fcf03cf5c2",
-    tenantId:    "39e14190-0b23-4ecd-99f9-606ad1215881",
+    tenantId:    "39e14190-0b23-4ecd-99f9-606ad1215881"
     redirectUri: window.location.origin + window.location.pathname,
   },
 
@@ -22,16 +22,15 @@ const Config = {
     graphBase: "https://graph.microsoft.com/v1.0",
   },
 
-  // Business rules
   rules: {
     coolOffDays:         2,
     maxLeadsPerAgent:    15,
     maxContactsPerDay:   5,
     recycleAfterDays:    30,
-    appVersion:          "2.0",
+    appVersion:          "3.0",
   },
 
-  // Updated pipeline statuses
+  // Pipeline statuses
   leadStatuses: [
     "New",
     "1st Contact",
@@ -40,14 +39,29 @@ const Config = {
     "Do Not Call",
     "Sold",
     "Pending Order",
-    "FNQ"
+    "FNQ",
+    "Already has Fiber"
   ],
 
-  // Terminal statuses - no further action expected
-  terminalStatuses: ["Do Not Call", "Sold", "FNQ"],
+  // Terminal statuses
+  terminalStatuses: ["Do Not Call", "Sold", "FNQ", "Already has Fiber"],
 
-  // Sold status - triggers live sales feed
   soldStatus: "Sold",
+
+  // Lead types
+  leadTypes: ["MLR", "OFS", "Forced"],
+
+  // Current products options
+  currentProducts: [
+    "Internet",
+    "TV",
+    "Phone",
+    "Internet + TV",
+    "Internet + Phone",
+    "TV + Phone",
+    "Internet + TV + Phone",
+    "Other"
+  ],
 
   leadSources: [
     "Web Form",
@@ -59,16 +73,12 @@ const Config = {
     "Other"
   ],
 
-  // Role-based access
-  // Add email addresses of leadership/admins who can assign leads
   roles: {
     admins: [
-      "antoinette.bickel@raimak.com",
-      "S.Balleste@raimak.com",
-      "B.Hinesley@raimak.com",
-      "RichardZacker@raimak.com",
+      // Add admin emails here — remove the // to activate
+      // "RichardZacker@raimak.com",
+      // "B.Hinesley@raimak.com",
     ],
-    // Anyone NOT in the admins list is treated as a standard Agent
   },
 
   scopes: [
@@ -76,6 +86,5 @@ const Config = {
     "User.Read",
   ],
 
-  // Live sales feed poll interval (ms)
   salesFeedInterval: 30000,
 };
