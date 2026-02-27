@@ -422,7 +422,7 @@ async function confirmDripAssign(leadId) {
   try {
     await Graph.updateLead(leadId, { Agent_x0020_Assigned: agent });
     await Graph.logActivity({
-      LeadID::   leadId,
+      LeadID:   leadId,
       LeadName: lead ? lead.name : "",
       Action:   "Drip Assigned",
       Agent:    agent,
