@@ -30,6 +30,7 @@ const Config = {
     appVersion:          "3.0",
   },
 
+  
   // Pipeline statuses
   leadStatuses: [
     "New",
