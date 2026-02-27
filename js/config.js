@@ -79,8 +79,7 @@ const Config = {
       "B.Hinesley@raimak.com",
       "S.Balleste@raimak.com",
       "antoinette.bickel@raimak.com",
-      
-    ],
+      ],
   },
 
   scopes: [
