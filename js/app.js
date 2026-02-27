@@ -7,7 +7,7 @@ const State = {
   todaySales:      [],
   currentView:     "dashboard",
   filters:         { status: "all", search: "", assignedTo: "all" },
-  editingLead_x0020_ID:   null,
+  editingLeadID::   null,
   loading:         false,
   role:            "agent",
   currentUser:     null,
@@ -422,7 +422,7 @@ async function confirmDripAssign(leadId) {
   try {
     await Graph.updateLead(leadId, { Agent_x0020_Assigned: agent });
     await Graph.logActivity({
-      Lead_x0020_ID:   leadId,
+      LeadID::   leadId,
       LeadName: lead ? lead.name : "",
       Action:   "Drip Assigned",
       Agent:    agent,
@@ -568,7 +568,7 @@ async function agentUpdateStatus(leadId, newStatus) {
       CurrentProducts: products,
     });
     await Graph.logActivity({
-      Lead_x0020_ID:     leadId,
+      LeadID::     leadId,
       LeadName:   lead.name,
       Action:     "Status: " + newStatus,
       Agent:      (user && user.name) || "",
@@ -598,7 +598,7 @@ async function agentSaveNote(leadId) {
       CurrentMRC:      (mrc && mrc.value) || "",
       CurrentProducts: (products && products.value) || "",
     });
-    await Graph.logActivity({ Lead_x0020_ID: leadId, LeadName: lead.name, Action: "Note Added", Agent: (State.currentUser && State.currentUser.name) || "", Notes: notes.value.trim() });
+    await Graph.logActivity({ LeadID:: leadId, LeadName: lead.name, Action: "Note Added", Agent: (State.currentUser && State.currentUser.name) || "", Notes: notes.value.trim() });
     UI.showToast("Saved!", "success");
     await loadAllData();
     renderMyLeads();
@@ -689,7 +689,7 @@ async function assignLead(leadId) {
   setLoading(true);
   try {
     await Graph.updateLead(leadId, { Agent_x0020_Assigned: agent });
-    await Graph.logActivity({ Lead_x0020_ID: leadId, LeadName: lead ? lead.name : "", Action: "Assigned", Agent: agent, Notes: "Assigned by " + ((State.currentUser && State.currentUser.name) || "Admin") });
+    await Graph.logActivity({ LeadID:: leadId, LeadName: lead ? lead.name : "", Action: "Assigned", Agent: agent, Notes: "Assigned by " + ((State.currentUser && State.currentUser.name) || "Admin") });
     UI.showToast("Assigned to " + agent, "success");
     await loadAllData();
     renderAssignLeads();
@@ -1061,7 +1061,7 @@ async function submitAddLead() {
   setLoading(true);
   try {
     const newLead = await Graph.addLead(fields);
-    await Graph.logActivity({ Lead_x0020_ID: newLead.id, LeadName: fields.Title, Action: "Lead Created", Agent: (State.currentUser&&State.currentUser.name)||"" });
+    await Graph.logActivity({ LeadID:: newLead.id, LeadName: fields.Title, Action: "Lead Created", Agent: (State.currentUser&&State.currentUser.name)||"" });
     await refreshData();
     closeModal();
     UI.showToast("Lead added!", "success");
@@ -1075,7 +1075,7 @@ async function submitEditLead() {
   setLoading(true);
   try {
     await Graph.updateLead(State.editingLeadId, fields);
-    await Graph.logActivity({ Lead_x0020_ID: State.editingLeadId, LeadName: fields.Title, Action: "Lead Updated", Agent: (State.currentUser&&State.currentUser.name)||"" });
+    await Graph.logActivity({ LeadID:: State.editingLeadId, LeadName: fields.Title, Action: "Lead Updated", Agent: (State.currentUser&&State.currentUser.name)||"" });
     await refreshData();
     closeModal();
     UI.showToast("Lead updated!", "success");
