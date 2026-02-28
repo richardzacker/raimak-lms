@@ -598,7 +598,7 @@ async function agentSaveNote(leadId) {
       CurrentMRC:      (mrc && mrc.value) || "",
       CurrentProducts: (products && products.value) || "",
     });
-    await Graph.logActivity({ LeadID:: leadId, LeadName: lead.name, Action: "Note Added", Agent: (State.currentUser && State.currentUser.name) || "", Notes: notes.value.trim() });
+    await Graph.logActivity({ LeadID: leadId, LeadName: lead.name, Action: "Note Added", Agent: (State.currentUser && State.currentUser.name) || "", Notes: notes.value.trim() });
     UI.showToast("Saved!", "success");
     await loadAllData();
     renderMyLeads();
