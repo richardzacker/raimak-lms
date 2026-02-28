@@ -1061,7 +1061,7 @@ async function submitAddLead() {
   setLoading(true);
   try {
     const newLead = await Graph.addLead(fields);
-    await Graph.logActivity({ LeadID:: newLead.id, LeadName: fields.Title, Action: "Lead Created", Agent: (State.currentUser&&State.currentUser.name)||"" });
+    await Graph.logActivity({ LeadID: newLead.id, LeadName: fields.Title, Action: "Lead Created", Agent: (State.currentUser&&State.currentUser.name)||"" });
     await refreshData();
     closeModal();
     UI.showToast("Lead added!", "success");
@@ -1075,7 +1075,7 @@ async function submitEditLead() {
   setLoading(true);
   try {
     await Graph.updateLead(State.editingLeadId, fields);
-    await Graph.logActivity({ LeadID:: State.editingLeadId, LeadName: fields.Title, Action: "Lead Updated", Agent: (State.currentUser&&State.currentUser.name)||"" });
+    await Graph.logActivity({ LeadID: State.editingLeadId, LeadName: fields.Title, Action: "Lead Updated", Agent: (State.currentUser&&State.currentUser.name)||"" });
     await refreshData();
     closeModal();
     UI.showToast("Lead updated!", "success");
