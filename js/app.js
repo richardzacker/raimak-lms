@@ -9,7 +9,7 @@ const State = {
   filters:         { status: "all", search: "", assignedTo: "all" },
   editingLeadID:   null,
   loading:         false,
-  role:            "agent",
+  role:            "AgentEmail",
   currentUser:     null,
   salesFeedTimer:  null,
   dripLead:        null,
@@ -18,10 +18,10 @@ const State = {
 function isAdmin() { return State.role === "admin"; }
 
 function detectRole(user) {
-  if (!user) return "agent";
+  if (!user) return "AgentEmail";
   const email  = (user.email || "").toLowerCase();
   const admins = (Config.roles.admins || []).map(function(a) { return a.toLowerCase(); });
-  return admins.includes(email) ? "admin" : "agent";
+  return admins.includes(email) ? "admin" : "AgentEmail";
 }
 
 // ── Boot ──────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ function showAppShell() {
       Daily Report
     </a>` : "";
 
-  const agentNav = !isAdmin() ? `
+  const AgentEmailNav = !isAdmin() ? `
     <a class="nav-item" data-view="myleads" onclick="navigate('myleads')">
       <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><polyline points="12,6 12,12 16,14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       My Leads
@@ -118,7 +118,7 @@ function showAppShell() {
             <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="1" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="1" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="1" fill="currentColor"/></svg>
             Dashboard
           </a>
-          ${agentNav}
+          ${AgentEmailNav}
           ${adminNav}
           <a class="nav-item" data-view="leads" onclick="navigate('leads')">
             <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>
@@ -195,11 +195,11 @@ function renderDashboard() {
     statusCounts[s] = leads.filter(function(l) { return l.status === s; }).length;
   });
 
-  const agentSales = {};
+  const AgentEmailSales = {};
   todaySales.forEach(function(l) {
-    if (l.assignedTo) agentSales[l.assignedTo] = (agentSales[l.assignedTo] || 0) + 1;
+    if (l.assignedTo) AgentEmailSales[l.assignedTo] = (AgentEmailSales[l.assignedTo] || 0) + 1;
   });
-  const top5 = Object.entries(agentSales).sort(function(a,b) { return b[1]-a[1]; }).slice(0,5);
+  const top5 = Object.entries(AgentEmailSales).sort(function(a,b) { return b[1]-a[1]; }).slice(0,5);
 
   const recentLeads = leads.slice().sort(function(a,b) { return new Date(b.createdAt)-new Date(a.createdAt); }).slice(0,8);
 
@@ -207,7 +207,7 @@ function renderDashboard() {
     <div class="view-header">
       <div>
         <h1 class="view-title">Dashboard</h1>
-        <span class="view-subtitle">${isAdmin() ? "// ADMIN VIEW" : "// AGENT VIEW"} · v${Config.rules.appVersion}</span>
+        <span class="view-subtitle">${isAdmin() ? "// ADMIN VIEW" : "// AgentEmail VIEW"} · v${Config.rules.appVersion}</span>
       </div>
       ${isAdmin() ? `<button class="btn-primary" onclick="openAddLeadModal()">
         <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
@@ -265,7 +265,7 @@ function renderDashboard() {
               <div class="sale-icon">&#127881;</div>
               <div class="sale-info">
                 <span class="sale-name">${escHtml(l.name)}</span>
-                <span class="sale-agent">${escHtml(l.assignedTo || "Unassigned")}</span>
+                <span class="sale-AgentEmail">${escHtml(l.assignedTo || "Unassigned")}</span>
               </div>
               <span class="sale-time">${formatTime(l.modified)}</span>
             </div>`;
@@ -314,7 +314,7 @@ function startSalesFeedPolling() {
           <div class="sale-icon">&#127881;</div>
           <div class="sale-info">
             <span class="sale-name">${escHtml(l.name)}</span>
-            <span class="sale-agent">${escHtml(l.assignedTo||"Unassigned")}</span>
+            <span class="sale-AgentEmail">${escHtml(l.assignedTo||"Unassigned")}</span>
           </div>
           <span class="sale-time">${formatTime(l.modified)}</span>
         </div>`;
@@ -378,14 +378,14 @@ function renderDripFeed() {
         ${lead.notes ? `<div class="feed-notes">${escHtml(lead.notes)}</div>` : ""}
 
         <div style="margin-top:8px">
-          <span class="feed-label">Assign To Agent</span>
+          <span class="feed-label">Assign To AgentEmail</span>
           <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
-            <select id="drip-agent-select" class="filter-select" style="min-width:220px">
-              <option value="">Select an agent...</option>
+            <select id="drip-AgentEmail-select" class="filter-select" style="min-width:220px">
+              <option value="">Select an AgentEmail...</option>
               ${State.contractors.map(function(c) {
                 const count = State.leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
-                const full  = count >= Config.rules.maxLeadsPerAgent;
-                return `<option value="${escHtml(c.name)}" ${full?"disabled":""}>${escHtml(c.name)} — ${count}/${Config.rules.maxLeadsPerAgent}${full?" (FULL)":""}</option>`;
+                const full  = count >= Config.rules.maxLeadsPerAgentEmail;
+                return `<option value="${escHtml(c.name)}" ${full?"disabled":""}>${escHtml(c.name)} — ${count}/${Config.rules.maxLeadsPerAgentEmail}${full?" (FULL)":""}</option>`;
               }).join("")}
             </select>
             <button class="btn-primary" onclick="confirmDripAssign('${lead.id}')">
@@ -408,27 +408,27 @@ function renderDripFeed() {
 }
 
 async function confirmDripAssign(leadId) {
-  const select = document.getElementById("drip-agent-select");
-  const agent  = select && select.value;
-  if (!agent) { UI.showToast("Please select an agent first.", "error"); return; }
+  const select = document.getElementById("drip-AgentEmail-select");
+  const AgentEmail  = select && select.value;
+  if (!AgentEmail) { UI.showToast("Please select an AgentEmail first.", "error"); return; }
 
-  if (!Graph.canAgentTakeLead(agent, State.leads)) {
-    UI.showToast(agent + " is at the " + Config.rules.maxLeadsPerAgent + "-lead limit.", "error");
+  if (!Graph.canAgentEmailTakeLead(AgentEmail, State.leads)) {
+    UI.showToast(AgentEmail + " is at the " + Config.rules.maxLeadsPerAgentEmail + "-lead limit.", "error");
     return;
   }
 
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   setLoading(true);
   try {
-    await Graph.updateLead(leadId, { Agent_x0020_Assigned: agent });
+    await Graph.updateLead(leadId, { AgentEmail_x0020_Assigned: AgentEmail });
     await Graph.logActivity({
       LeadID:   leadId,
-      LeadName: lead ? lead.name : "",
-      Action:   "Drip Assigned",
-      Agent:    agent,
+      Title: lead ? lead.name : "",
+      ActionType:   "Drip Assigned",
+      AgentEmail:    AgentEmail,
       Notes:    "Drip-assigned by " + ((State.currentUser && State.currentUser.name) || "Admin"),
     });
-    UI.showToast(lead.name + " assigned to " + agent, "success");
+    UI.showToast(lead.name + " assigned to " + AgentEmail, "success");
     await loadAllData();
     // Move to next unassigned lead
     const remaining = State.leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
@@ -450,14 +450,14 @@ function skipDripLead() {
 }
 
 // ============================================================
-//  AGENT — MY LEADS
+//  AgentEmail — MY LEADS
 // ============================================================
 function renderMyLeads() {
   const user    = State.currentUser;
   const myLeads = State.leads.filter(function(l) {
     return l.assignedTo === (user && user.name) && !Config.terminalStatuses.includes(l.status);
   });
-  const contactsToday = Graph.agentContactsToday((user && user.name) || "", State.activityLog);
+  const contactsToday = Graph.AgentEmailContactsToday((user && user.name) || "", State.activityLog);
   const atLimit       = contactsToday >= Config.rules.maxContactsPerDay;
 
   document.getElementById("main-content").innerHTML = `
@@ -534,7 +534,7 @@ function renderLeadFeedCard(myLeads, contactsToday) {
         <div class="feed-status-buttons">
           ${Config.leadStatuses.filter(function(s) { return s !== "New"; }).map(function(s) {
             const cls = "status-btn-" + s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
-            return `<button class="status-btn ${cls}" onclick="agentUpdateStatus('${lead.id}','${s}')"
+            return `<button class="status-btn ${cls}" onclick="AgentEmailUpdateStatus('${lead.id}','${s}')"
               ${atLimit && !Config.terminalStatuses.includes(s) ? "disabled title='Daily limit reached'" : ""}>${s}</button>`;
           }).join("")}
         </div>
@@ -542,12 +542,12 @@ function renderLeadFeedCard(myLeads, contactsToday) {
 
       <div class="feed-note-row" style="margin-top:12px">
         <textarea id="feed-notes" class="form-input form-textarea" placeholder="Add a note..."></textarea>
-        <button class="btn-primary" onclick="agentSaveNote('${lead.id}')">Save</button>
+        <button class="btn-primary" onclick="AgentEmailSaveNote('${lead.id}')">Save</button>
       </div>
     </div>`;
 }
 
-async function agentUpdateStatus(leadId, newStatus) {
+async function AgentEmailUpdateStatus(leadId, newStatus) {
   const user = State.currentUser;
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   if (!lead) return;
@@ -569,10 +569,10 @@ async function agentUpdateStatus(leadId, newStatus) {
     });
     await Graph.logActivity({
       LeadID:     leadId,
-      LeadName:   lead.name,
-      Action:     "Status: " + newStatus,
-      Agent:      (user && user.name) || "",
-      AgentEmail: (user && user.email) || "",
+      Title:   lead.name,
+      ActionType:     "Status: " + newStatus,
+      AgentEmail:      (user && user.name) || "",
+      AgentEmailEmail: (user && user.email) || "",
       Notes:      notes,
     });
     if (newStatus === Config.soldStatus) UI.showConfetti();
@@ -584,7 +584,7 @@ async function agentUpdateStatus(leadId, newStatus) {
   } finally { setLoading(false); }
 }
 
-async function agentSaveNote(leadId) {
+async function AgentEmailSaveNote(leadId) {
   const notes    = document.getElementById("feed-notes");
   const mrc      = document.getElementById("feed-mrc");
   const products = document.getElementById("feed-products");
@@ -598,7 +598,7 @@ async function agentSaveNote(leadId) {
       CurrentMRC:      (mrc && mrc.value) || "",
       CurrentProducts: (products && products.value) || "",
     });
-    await Graph.logActivity({ LeadID: leadId, LeadName: lead.name, Action: "Note Added", Agent: (State.currentUser && State.currentUser.name) || "", Notes: notes.value.trim() });
+    await Graph.logActivity({ LeadID: leadId, Title: lead.name, ActionType: "Note Added", AgentEmail: (State.currentUser && State.currentUser.name) || "", Notes: notes.value.trim() });
     UI.showToast("Saved!", "success");
     await loadAllData();
     renderMyLeads();
@@ -613,7 +613,7 @@ async function agentSaveNote(leadId) {
 function renderAssignLeads() {
   const { leads, contractors } = State;
   const unassigned = leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
-  const max        = Config.rules.maxLeadsPerAgent;
+  const max        = Config.rules.maxLeadsPerAgentEmail;
 
   document.getElementById("main-content").innerHTML = `
     <div class="view-header">
@@ -630,14 +630,14 @@ function renderAssignLeads() {
       </div>
     </div>
 
-    <div class="assign-agent-grid">
+    <div class="assign-AgentEmail-grid">
       ${contractors.map(function(c) {
         const count = leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
         const pct   = Math.min(100, Math.round((count/max)*100));
         return `
-          <div class="assign-agent-card ${count >= max ? "agent-full" : ""}">
+          <div class="assign-AgentEmail-card ${count >= max ? "AgentEmail-full" : ""}">
             <div class="contractor-avatar">${c.name[0].toUpperCase()}</div>
-            <div class="assign-agent-info">
+            <div class="assign-AgentEmail-info">
               <span class="contractor-name">${escHtml(c.name)}</span>
               <div class="load-bar-wrap"><div class="load-bar ${pct>=100?"load-full":pct>=80?"load-high":""}" style="width:${pct}%"></div></div>
               <span class="assign-count ${count>=max?"text-danger":""}">${count}/${max}${count>=max?" — FULL":""}</span>
@@ -661,7 +661,7 @@ function renderAssignLeads() {
                 <td>
                   <div class="assign-select-row">
                     <select class="filter-select assign-select" id="assign-${lead.id}">
-                      <option value="">Select agent</option>
+                      <option value="">Select AgentEmail</option>
                       ${contractors.map(function(c) {
                         const cnt  = leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
                         const full = cnt >= max;
@@ -682,15 +682,15 @@ function renderAssignLeads() {
 
 async function assignLead(leadId) {
   const select = document.getElementById("assign-" + leadId);
-  const agent  = select && select.value;
-  if (!agent) { UI.showToast("Please select an agent.", "error"); return; }
-  if (!Graph.canAgentTakeLead(agent, State.leads)) { UI.showToast(agent + " is at the lead limit.", "error"); return; }
+  const AgentEmail  = select && select.value;
+  if (!AgentEmail) { UI.showToast("Please select an AgentEmail.", "error"); return; }
+  if (!Graph.canAgentEmailTakeLead(AgentEmail, State.leads)) { UI.showToast(AgentEmail + " is at the lead limit.", "error"); return; }
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   setLoading(true);
   try {
-    await Graph.updateLead(leadId, { Agent_x0020_Assigned: agent });
-    await Graph.logActivity({ LeadID: leadId, LeadName: lead ? lead.name : "", Action: "Assigned", Agent: agent, Notes: "Assigned by " + ((State.currentUser && State.currentUser.name) || "Admin") });
-    UI.showToast("Assigned to " + agent, "success");
+    await Graph.updateLead(leadId, { AgentEmail_x0020_Assigned: AgentEmail });
+    await Graph.logActivity({ LeadID: leadId, Title: lead ? lead.name : "", ActionType: "Assigned", AgentEmail: AgentEmail, Notes: "Assigned by " + ((State.currentUser && State.currentUser.name) || "Admin") });
+    UI.showToast("Assigned to " + AgentEmail, "success");
     await loadAllData();
     renderAssignLeads();
   } catch (err) {
@@ -702,18 +702,18 @@ async function autoAssignLeads() {
   const { leads, contractors } = State;
   const unassigned = leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
   if (!unassigned.length) { UI.showToast("No unassigned leads.", "info"); return; }
-  if (!confirm("Auto-assign " + unassigned.length + " leads evenly across available agents?")) return;
+  if (!confirm("Auto-assign " + unassigned.length + " leads evenly across available AgentEmails?")) return;
   setLoading(true);
   try {
     const slots = [];
     contractors.forEach(function(c) {
       const current   = leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
-      const available = Config.rules.maxLeadsPerAgent - current;
+      const available = Config.rules.maxLeadsPerAgentEmail - current;
       for (var i = 0; i < available; i++) slots.push(c.name);
     });
     let assigned = 0;
     for (let i = 0; i < Math.min(unassigned.length, slots.length); i++) {
-      await Graph.updateLead(unassigned[i].id, { Agent_x0020_Assigned: slots[i] });
+      await Graph.updateLead(unassigned[i].id, { AgentEmail_x0020_Assigned: slots[i] });
       assigned++;
     }
     UI.showToast("Assigned " + assigned + " leads!", "success");
@@ -735,7 +735,7 @@ function renderLeads() {
         <h1 class="view-title">All Leads</h1>
         <span class="view-subtitle">// ${State.leads.length} total</span>
       </div>
-      <div class="header-actions">
+      <div class="header-ActionTypes">
         <button class="btn-ghost" onclick="refreshData()">
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><polyline points="23,4 23,10 17,10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="1,20 1,14 7,14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Refresh
@@ -756,8 +756,8 @@ function renderLeads() {
         <option value="all">All Statuses</option>
         ${Config.leadStatuses.map(function(s) { return `<option value="${s}" ${State.filters.status===s?"selected":""}>${s}</option>`; }).join("")}
       </select>
-      <select class="filter-select" id="filter-agent" onchange="applyFilters()">
-        <option value="all">All Agents</option>
+      <select class="filter-select" id="filter-AgentEmail" onchange="applyFilters()">
+        <option value="all">All AgentEmails</option>
         ${contractors.map(function(c) { return `<option value="${c}" ${State.filters.assignedTo===c?"selected":""}>${c}</option>`; }).join("")}
       </select>
     </div>
@@ -780,13 +780,13 @@ function getFilteredLeads() {
 function applyFilters() {
   State.filters.search     = (document.getElementById("search-input")  || {}).value || "";
   State.filters.status     = (document.getElementById("filter-status") || {}).value || "all";
-  State.filters.assignedTo = (document.getElementById("filter-agent")  || {}).value || "all";
+  State.filters.assignedTo = (document.getElementById("filter-AgentEmail")  || {}).value || "all";
   const wrap = document.getElementById("leads-table-wrap");
   if (wrap) wrap.innerHTML = renderLeadsTable(getFilteredLeads());
 }
 
-// compact = dashboard recent leads (fewer cols), agentView = hide edit/delete
-function renderLeadsTable(leads, compact, agentView) {
+// compact = dashboard recent leads (fewer cols), AgentEmailView = hide edit/delete
+function renderLeadsTable(leads, compact, AgentEmailView) {
   if (!leads.length) return `<div class="empty-state"><p>No leads found.</p></div>`;
   return `
     <div class="table-wrap">
@@ -814,7 +814,7 @@ function renderLeadsTable(leads, compact, agentView) {
                 ${compact ? "" : `
                 <td class="td-mono">${lead.currentMRC ? "$" + escHtml(lead.currentMRC) + "/mo" : "—"}</td>
                 <td class="td-flags">${(lead.flags||[]).map(function(f) { return `<span class="flag flag-${f}">${flagLabel(f)}</span>`; }).join("")}</td>
-                <td class="td-actions">
+                <td class="td-ActionTypes">
                   ${isAdmin() ? `
                     <button class="btn-icon" onclick="event.stopPropagation();openEditLeadModal('${lead.id}')" title="Edit">
                       <svg width="13" height="13" fill="none" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -851,20 +851,20 @@ async function renderDailyReport() {
       <div class="kpi-grid">
         <div class="kpi-card kpi-primary"><span class="kpi-label">Total Contacts Today</span><span class="kpi-value">${stats.reduce(function(s,a){return s+a.contacts;},0)}</span></div>
         <div class="kpi-card kpi-success"><span class="kpi-label">Total Sales Today</span><span class="kpi-value">${State.todaySales.length}</span></div>
-        <div class="kpi-card kpi-info"><span class="kpi-label">Active Agents</span><span class="kpi-value">${stats.length}</span></div>
-        <div class="kpi-card kpi-neutral"><span class="kpi-label">Avg Contacts/Agent</span><span class="kpi-value">${stats.length?Math.round(stats.reduce(function(s,a){return s+a.contacts;},0)/stats.length):0}</span></div>
+        <div class="kpi-card kpi-info"><span class="kpi-label">Active AgentEmails</span><span class="kpi-value">${stats.length}</span></div>
+        <div class="kpi-card kpi-neutral"><span class="kpi-label">Avg Contacts/AgentEmail</span><span class="kpi-value">${stats.length?Math.round(stats.reduce(function(s,a){return s+a.contacts;},0)/stats.length):0}</span></div>
       </div>
       <div class="card">
-        <div class="card-header"><h2 class="card-title">Agent Breakdown</h2></div>
+        <div class="card-header"><h2 class="card-title">AgentEmail Breakdown</h2></div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>Agent</th><th>Contacts Today</th><th>Sales Today</th><th>Limit</th><th>Last Action</th></tr></thead>
+            <thead><tr><th>AgentEmail</th><th>Contacts Today</th><th>Sales Today</th><th>Limit</th><th>Last ActionType</th></tr></thead>
             <tbody>
               ${stats.length ? stats.map(function(a) {
                 const pct  = Math.round((a.contacts/Config.rules.maxContactsPerDay)*100);
-                const last = a.actions.length ? a.actions[0] : null;
+                const last = a.ActionTypes.length ? a.ActionTypes[0] : null;
                 return `<tr>
-                  <td><span class="lead-name">${escHtml(a.agent)}</span></td>
+                  <td><span class="lead-name">${escHtml(a.AgentEmail)}</span></td>
                   <td>
                     <div style="display:flex;align-items:center;gap:10px">
                       <span class="td-mono">${a.contacts}</span>
@@ -889,8 +889,8 @@ async function renderDailyReport() {
 function exportReportCSV() {
   const stats = window._reportStats || [];
   const today = new Date().toISOString().split("T")[0];
-  const csv   = ["Agent,Contacts Today,Sales Today,Date"]
-    .concat(stats.map(function(a) { return [a.agent,a.contacts,a.sold,today].map(function(v){return '"'+String(v||"").replace(/"/g,'""')+'"';}).join(","); }))
+  const csv   = ["AgentEmail,Contacts Today,Sales Today,Date"]
+    .concat(stats.map(function(a) { return [a.AgentEmail,a.contacts,a.sold,today].map(function(v){return '"'+String(v||"").replace(/"/g,'""')+'"';}).join(","); }))
     .join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
@@ -904,17 +904,17 @@ function exportReportCSV() {
 // ============================================================
 function renderContractors() {
   const { contractors, leads } = State;
-  const max = Config.rules.maxLeadsPerAgent;
+  const max = Config.rules.maxLeadsPerAgentEmail;
   document.getElementById("main-content").innerHTML = `
     <div class="view-header">
       <h1 class="view-title">Contractors</h1>
-      <span class="view-subtitle">// ${contractors.length} agents</span>
+      <span class="view-subtitle">// ${contractors.length} AgentEmails</span>
     </div>
     <div class="contractor-grid">
       ${contractors.map(function(c) {
         const count     = leads.filter(function(l){return l.assignedTo===c.name&&!Config.terminalStatuses.includes(l.status);}).length;
         const pct       = Math.min(100,Math.round((count/max)*100));
-        const contacts  = Graph.agentContactsToday(c.name, State.activityLog);
+        const contacts  = Graph.AgentEmailContactsToday(c.name, State.activityLog);
         return `
           <div class="contractor-card">
             <div class="contractor-header">
@@ -945,14 +945,14 @@ function renderActivity() {
     <div class="card">
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Time</th><th>Lead</th><th>Action</th><th>Agent</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Time</th><th>Lead</th><th>ActionType</th><th>AgentEmail</th><th>Notes</th></tr></thead>
           <tbody>
             ${activityLog.length ? activityLog.map(function(e) { return `
               <tr>
                 <td class="td-mono">${formatDateTime(e.timestamp)}</td>
-                <td>${escHtml(e.leadName||e.leadId||"—")}</td>
-                <td><span class="action-badge">${escHtml(e.action||"—")}</span></td>
-                <td>${escHtml(e.agent||"—")}</td>
+                <td>${escHtml(e.Title||e.leadId||"—")}</td>
+                <td><span class="ActionType-badge">${escHtml(e.ActionType||"—")}</span></td>
+                <td>${escHtml(e.AgentEmail||"—")}</td>
                 <td class="td-notes">${escHtml(e.notes||"")}</td>
               </tr>`;
             }).join("") : `<tr><td colspan="5" class="empty-state">No activity yet.</td></tr>`}
@@ -1061,7 +1061,7 @@ async function submitAddLead() {
   setLoading(true);
   try {
     const newLead = await Graph.addLead(fields);
-    await Graph.logActivity({ LeadID: newLead.id, LeadName: fields.Title, Action: "Lead Created", Agent: (State.currentUser&&State.currentUser.name)||"" });
+    await Graph.logActivity({ LeadID: newLead.id, Title: fields.Title, ActionType: "Lead Created", AgentEmail: (State.currentUser&&State.currentUser.name)||"" });
     await refreshData();
     closeModal();
     UI.showToast("Lead added!", "success");
@@ -1075,7 +1075,7 @@ async function submitEditLead() {
   setLoading(true);
   try {
     await Graph.updateLead(State.editingLeadId, fields);
-    await Graph.logActivity({ LeadID: State.editingLeadId, LeadName: fields.Title, Action: "Lead Updated", Agent: (State.currentUser&&State.currentUser.name)||"" });
+    await Graph.logActivity({ LeadID: State.editingLeadId, Title: fields.Title, ActionType: "Lead Updated", AgentEmail: (State.currentUser&&State.currentUser.name)||"" });
     await refreshData();
     closeModal();
     UI.showToast("Lead updated!", "success");
@@ -1093,7 +1093,7 @@ function collectLeadForm() {
     Phone:           ((document.getElementById("f-phone")       ||{}).value||"").trim(),
     Status:          (document.getElementById("f-status")       ||{}).value || "New",
     LeadSource:      (document.getElementById("f-source")       ||{}).value || "",
-    Agent_x0020_Assigned:      (document.getElementById("f-assigned")     ||{}).value || "",
+    AgentEmail_x0020_Assigned:      (document.getElementById("f-assigned")     ||{}).value || "",
     LastContacted:   (document.getElementById("f-lastcontacted")||{}).value || "",
     CurrentMRC:      (document.getElementById("f-mrc")          ||{}).value || "",
     CurrentProducts: (document.getElementById("f-products")     ||{}).value || "",
@@ -1130,7 +1130,7 @@ function setLoading(on) {
 }
 
 function updateBadges() {
-  const n = State.leads.filter(function(l) { return l.flags && (l.flags.includes("needs_recycle")||l.flags.includes("agent_overloaded")); }).length;
+  const n = State.leads.filter(function(l) { return l.flags && (l.flags.includes("needs_recycle")||l.flags.includes("AgentEmail_overloaded")); }).length;
   const b = document.getElementById("badge-leads");
   if (b) { b.textContent = n > 0 ? n : ""; b.style.display = n > 0 ? "inline-flex" : "none"; }
 }
@@ -1150,7 +1150,7 @@ function exportCSV() {
   UI.showToast("Exported!", "success");
 }
 
-function flagLabel(f) { return {cool_off:"Cool-off",needs_recycle:"Recycle",agent_overloaded:"Overloaded"}[f]||f; }
+function flagLabel(f) { return {cool_off:"Cool-off",needs_recycle:"Recycle",AgentEmail_overloaded:"Overloaded"}[f]||f; }
 function formatDate(d) { if (!d) return ""; return new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}); }
 function formatTime(d) { if (!d) return ""; return new Date(d).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}); }
 function formatDateTime(d) { if (!d) return ""; return new Date(d).toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}); }
