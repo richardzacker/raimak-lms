@@ -7,21 +7,22 @@ const State = {
   todaySales:      [],
   currentView:     "dashboard",
   filters:         { status: "all", search: "", assignedTo: "all" },
-  editingLeadID:   null,
+  editingLeadId:   null,
   loading:         false,
-  role:            "AgentEmail",
+  role:            "agent",
   currentUser:     null,
   salesFeedTimer:  null,
   dripLead:        null,
+  selectedLeads:   new Set(),
 };
 
 function isAdmin() { return State.role === "admin"; }
 
 function detectRole(user) {
-  if (!user) return "AgentEmail";
+  if (!user) return "agent";
   const email  = (user.email || "").toLowerCase();
   const admins = (Config.roles.admins || []).map(function(a) { return a.toLowerCase(); });
-  return admins.includes(email) ? "admin" : "AgentEmail";
+  return admins.includes(email) ? "admin" : "agent";
 }
 
 // ── Boot ──────────────────────────────────────────────────────
@@ -103,7 +104,7 @@ function showAppShell() {
       Daily Report
     </a>` : "";
 
-  const AgentEmailNav = !isAdmin() ? `
+  const agentNav = !isAdmin() ? `
     <a class="nav-item" data-view="myleads" onclick="navigate('myleads')">
       <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><polyline points="12,6 12,12 16,14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       My Leads
@@ -118,7 +119,7 @@ function showAppShell() {
             <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1" fill="currentColor"/><rect x="14" y="3" width="7" height="7" rx="1" fill="currentColor"/><rect x="3" y="14" width="7" height="7" rx="1" fill="currentColor"/><rect x="14" y="14" width="7" height="7" rx="1" fill="currentColor"/></svg>
             Dashboard
           </a>
-          ${AgentEmailNav}
+          ${agentNav}
           ${adminNav}
           <a class="nav-item" data-view="leads" onclick="navigate('leads')">
             <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>
@@ -195,11 +196,11 @@ function renderDashboard() {
     statusCounts[s] = leads.filter(function(l) { return l.status === s; }).length;
   });
 
-  const AgentEmailSales = {};
+  const agentSales = {};
   todaySales.forEach(function(l) {
-    if (l.assignedTo) AgentEmailSales[l.assignedTo] = (AgentEmailSales[l.assignedTo] || 0) + 1;
+    if (l.assignedTo) agentSales[l.assignedTo] = (agentSales[l.assignedTo] || 0) + 1;
   });
-  const top5 = Object.entries(AgentEmailSales).sort(function(a,b) { return b[1]-a[1]; }).slice(0,5);
+  const top5 = Object.entries(agentSales).sort(function(a,b) { return b[1]-a[1]; }).slice(0,5);
 
   const recentLeads = leads.slice().sort(function(a,b) { return new Date(b.createdAt)-new Date(a.createdAt); }).slice(0,8);
 
@@ -207,7 +208,7 @@ function renderDashboard() {
     <div class="view-header">
       <div>
         <h1 class="view-title">Dashboard</h1>
-        <span class="view-subtitle">${isAdmin() ? "// ADMIN VIEW" : "// AgentEmail VIEW"} · v${Config.rules.appVersion}</span>
+        <span class="view-subtitle">${isAdmin() ? "// ADMIN VIEW" : "// AGENT VIEW"} · v${Config.rules.appVersion}</span>
       </div>
       ${isAdmin() ? `<button class="btn-primary" onclick="openAddLeadModal()">
         <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/><line x1="5" y1="12" x2="19" y2="12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"/></svg>
@@ -265,7 +266,7 @@ function renderDashboard() {
               <div class="sale-icon">&#127881;</div>
               <div class="sale-info">
                 <span class="sale-name">${escHtml(l.name)}</span>
-                <span class="sale-AgentEmail">${escHtml(l.assignedTo || "Unassigned")}</span>
+                <span class="sale-agent">${escHtml(l.assignedTo || "Unassigned")}</span>
               </div>
               <span class="sale-time">${formatTime(l.modified)}</span>
             </div>`;
@@ -314,7 +315,7 @@ function startSalesFeedPolling() {
           <div class="sale-icon">&#127881;</div>
           <div class="sale-info">
             <span class="sale-name">${escHtml(l.name)}</span>
-            <span class="sale-AgentEmail">${escHtml(l.assignedTo||"Unassigned")}</span>
+            <span class="sale-agent">${escHtml(l.assignedTo||"Unassigned")}</span>
           </div>
           <span class="sale-time">${formatTime(l.modified)}</span>
         </div>`;
@@ -378,14 +379,14 @@ function renderDripFeed() {
         ${lead.notes ? `<div class="feed-notes">${escHtml(lead.notes)}</div>` : ""}
 
         <div style="margin-top:8px">
-          <span class="feed-label">Assign To AgentEmail</span>
+          <span class="feed-label">Assign To Agent</span>
           <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
-            <select id="drip-AgentEmail-select" class="filter-select" style="min-width:220px">
-              <option value="">Select an AgentEmail...</option>
+            <select id="drip-agent-select" class="filter-select" style="min-width:220px">
+              <option value="">Select an agent...</option>
               ${State.contractors.map(function(c) {
                 const count = State.leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
-                const full  = count >= Config.rules.maxLeadsPerAgentEmail;
-                return `<option value="${escHtml(c.name)}" ${full?"disabled":""}>${escHtml(c.name)} — ${count}/${Config.rules.maxLeadsPerAgentEmail}${full?" (FULL)":""}</option>`;
+                const full  = count >= Config.rules.maxLeadsPerAgent;
+                return `<option value="${escHtml(c.name)}" ${full?"disabled":""}>${escHtml(c.name)} — ${count}/${Config.rules.maxLeadsPerAgent}${full?" (FULL)":""}</option>`;
               }).join("")}
             </select>
             <button class="btn-primary" onclick="confirmDripAssign('${lead.id}')">
@@ -408,27 +409,27 @@ function renderDripFeed() {
 }
 
 async function confirmDripAssign(leadId) {
-  const select = document.getElementById("drip-AgentEmail-select");
-  const AgentEmail  = select && select.value;
-  if (!AgentEmail) { UI.showToast("Please select an AgentEmail first.", "error"); return; }
+  const select = document.getElementById("drip-agent-select");
+  const agent  = select && select.value;
+  if (!agent) { UI.showToast("Please select an agent first.", "error"); return; }
 
-  if (!Graph.canAgentEmailTakeLead(AgentEmail, State.leads)) {
-    UI.showToast(AgentEmail + " is at the " + Config.rules.maxLeadsPerAgentEmail + "-lead limit.", "error");
+  if (!Graph.canAgentTakeLead(agent, State.leads)) {
+    UI.showToast(agent + " is at the " + Config.rules.maxLeadsPerAgent + "-lead limit.", "error");
     return;
   }
 
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   setLoading(true);
   try {
-    await Graph.updateLead(leadId, { AgentEmail_x0020_Assigned: AgentEmail });
+    await Graph.updateLead(leadId, { AssignedTo: agent });
     await Graph.logActivity({
-      LeadID:   leadId,
-      Title: lead ? lead.name : "",
-      ActionType:   "Drip Assigned",
-      AgentEmail:    AgentEmail,
+      LeadId:   leadId,
+      LeadName: lead ? lead.name : "",
+      Action:   "Drip Assigned",
+      Agent:    agent,
       Notes:    "Drip-assigned by " + ((State.currentUser && State.currentUser.name) || "Admin"),
     });
-    UI.showToast(lead.name + " assigned to " + AgentEmail, "success");
+    UI.showToast(lead.name + " assigned to " + agent, "success");
     await loadAllData();
     // Move to next unassigned lead
     const remaining = State.leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
@@ -450,14 +451,14 @@ function skipDripLead() {
 }
 
 // ============================================================
-//  AgentEmail — MY LEADS
+//  AGENT — MY LEADS
 // ============================================================
 function renderMyLeads() {
   const user    = State.currentUser;
   const myLeads = State.leads.filter(function(l) {
     return l.assignedTo === (user && user.name) && !Config.terminalStatuses.includes(l.status);
   });
-  const contactsToday = Graph.AgentEmailContactsToday((user && user.name) || "", State.activityLog);
+  const contactsToday = Graph.agentContactsToday((user && user.name) || "", State.activityLog);
   const atLimit       = contactsToday >= Config.rules.maxContactsPerDay;
 
   document.getElementById("main-content").innerHTML = `
@@ -534,7 +535,7 @@ function renderLeadFeedCard(myLeads, contactsToday) {
         <div class="feed-status-buttons">
           ${Config.leadStatuses.filter(function(s) { return s !== "New"; }).map(function(s) {
             const cls = "status-btn-" + s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
-            return `<button class="status-btn ${cls}" onclick="AgentEmailUpdateStatus('${lead.id}','${s}')"
+            return `<button class="status-btn ${cls}" onclick="agentUpdateStatus('${lead.id}','${s}')"
               ${atLimit && !Config.terminalStatuses.includes(s) ? "disabled title='Daily limit reached'" : ""}>${s}</button>`;
           }).join("")}
         </div>
@@ -542,12 +543,12 @@ function renderLeadFeedCard(myLeads, contactsToday) {
 
       <div class="feed-note-row" style="margin-top:12px">
         <textarea id="feed-notes" class="form-input form-textarea" placeholder="Add a note..."></textarea>
-        <button class="btn-primary" onclick="AgentEmailSaveNote('${lead.id}')">Save</button>
+        <button class="btn-primary" onclick="agentSaveNote('${lead.id}')">Save</button>
       </div>
     </div>`;
 }
 
-async function AgentEmailUpdateStatus(leadId, newStatus) {
+async function agentUpdateStatus(leadId, newStatus) {
   const user = State.currentUser;
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   if (!lead) return;
@@ -568,11 +569,11 @@ async function AgentEmailUpdateStatus(leadId, newStatus) {
       CurrentProducts: products,
     });
     await Graph.logActivity({
-      LeadID:     leadId,
-      Title:   lead.name,
-      ActionType:     "Status: " + newStatus,
-      AgentEmail:      (user && user.name) || "",
-      AgentEmailEmail: (user && user.email) || "",
+      LeadId:     leadId,
+      LeadName:   lead.name,
+      Action:     "Status: " + newStatus,
+      Agent:      (user && user.name) || "",
+      AgentEmail: (user && user.email) || "",
       Notes:      notes,
     });
     if (newStatus === Config.soldStatus) UI.showConfetti();
@@ -584,7 +585,7 @@ async function AgentEmailUpdateStatus(leadId, newStatus) {
   } finally { setLoading(false); }
 }
 
-async function AgentEmailSaveNote(leadId) {
+async function agentSaveNote(leadId) {
   const notes    = document.getElementById("feed-notes");
   const mrc      = document.getElementById("feed-mrc");
   const products = document.getElementById("feed-products");
@@ -598,7 +599,7 @@ async function AgentEmailSaveNote(leadId) {
       CurrentMRC:      (mrc && mrc.value) || "",
       CurrentProducts: (products && products.value) || "",
     });
-    await Graph.logActivity({ LeadID: leadId, Title: lead.name, ActionType: "Note Added", AgentEmail: (State.currentUser && State.currentUser.name) || "", Notes: notes.value.trim() });
+    await Graph.logActivity({ LeadId: leadId, LeadName: lead.name, Action: "Note Added", Agent: (State.currentUser && State.currentUser.name) || "", Notes: notes.value.trim() });
     UI.showToast("Saved!", "success");
     await loadAllData();
     renderMyLeads();
@@ -613,7 +614,7 @@ async function AgentEmailSaveNote(leadId) {
 function renderAssignLeads() {
   const { leads, contractors } = State;
   const unassigned = leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
-  const max        = Config.rules.maxLeadsPerAgentEmail;
+  const max        = Config.rules.maxLeadsPerAgent;
 
   document.getElementById("main-content").innerHTML = `
     <div class="view-header">
@@ -630,14 +631,14 @@ function renderAssignLeads() {
       </div>
     </div>
 
-    <div class="assign-AgentEmail-grid">
+    <div class="assign-agent-grid">
       ${contractors.map(function(c) {
         const count = leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
         const pct   = Math.min(100, Math.round((count/max)*100));
         return `
-          <div class="assign-AgentEmail-card ${count >= max ? "AgentEmail-full" : ""}">
+          <div class="assign-agent-card ${count >= max ? "agent-full" : ""}">
             <div class="contractor-avatar">${c.name[0].toUpperCase()}</div>
-            <div class="assign-AgentEmail-info">
+            <div class="assign-agent-info">
               <span class="contractor-name">${escHtml(c.name)}</span>
               <div class="load-bar-wrap"><div class="load-bar ${pct>=100?"load-full":pct>=80?"load-high":""}" style="width:${pct}%"></div></div>
               <span class="assign-count ${count>=max?"text-danger":""}">${count}/${max}${count>=max?" — FULL":""}</span>
@@ -661,7 +662,7 @@ function renderAssignLeads() {
                 <td>
                   <div class="assign-select-row">
                     <select class="filter-select assign-select" id="assign-${lead.id}">
-                      <option value="">Select AgentEmail</option>
+                      <option value="">Select agent</option>
                       ${contractors.map(function(c) {
                         const cnt  = leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
                         const full = cnt >= max;
@@ -682,15 +683,15 @@ function renderAssignLeads() {
 
 async function assignLead(leadId) {
   const select = document.getElementById("assign-" + leadId);
-  const AgentEmail  = select && select.value;
-  if (!AgentEmail) { UI.showToast("Please select an AgentEmail.", "error"); return; }
-  if (!Graph.canAgentEmailTakeLead(AgentEmail, State.leads)) { UI.showToast(AgentEmail + " is at the lead limit.", "error"); return; }
+  const agent  = select && select.value;
+  if (!agent) { UI.showToast("Please select an agent.", "error"); return; }
+  if (!Graph.canAgentTakeLead(agent, State.leads)) { UI.showToast(agent + " is at the lead limit.", "error"); return; }
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   setLoading(true);
   try {
-    await Graph.updateLead(leadId, { AgentEmail_x0020_Assigned: AgentEmail });
-    await Graph.logActivity({ LeadID: leadId, Title: lead ? lead.name : "", ActionType: "Assigned", AgentEmail: AgentEmail, Notes: "Assigned by " + ((State.currentUser && State.currentUser.name) || "Admin") });
-    UI.showToast("Assigned to " + AgentEmail, "success");
+    await Graph.updateLead(leadId, { AssignedTo: agent });
+    await Graph.logActivity({ LeadId: leadId, LeadName: lead ? lead.name : "", Action: "Assigned", Agent: agent, Notes: "Assigned by " + ((State.currentUser && State.currentUser.name) || "Admin") });
+    UI.showToast("Assigned to " + agent, "success");
     await loadAllData();
     renderAssignLeads();
   } catch (err) {
@@ -702,18 +703,18 @@ async function autoAssignLeads() {
   const { leads, contractors } = State;
   const unassigned = leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
   if (!unassigned.length) { UI.showToast("No unassigned leads.", "info"); return; }
-  if (!confirm("Auto-assign " + unassigned.length + " leads evenly across available AgentEmails?")) return;
+  if (!confirm("Auto-assign " + unassigned.length + " leads evenly across available agents?")) return;
   setLoading(true);
   try {
     const slots = [];
     contractors.forEach(function(c) {
       const current   = leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
-      const available = Config.rules.maxLeadsPerAgentEmail - current;
+      const available = Config.rules.maxLeadsPerAgent - current;
       for (var i = 0; i < available; i++) slots.push(c.name);
     });
     let assigned = 0;
     for (let i = 0; i < Math.min(unassigned.length, slots.length); i++) {
-      await Graph.updateLead(unassigned[i].id, { AgentEmail_x0020_Assigned: slots[i] });
+      await Graph.updateLead(unassigned[i].id, { AssignedTo: slots[i] });
       assigned++;
     }
     UI.showToast("Assigned " + assigned + " leads!", "success");
@@ -728,14 +729,15 @@ async function autoAssignLeads() {
 //  LEADS VIEW
 // ============================================================
 function renderLeads() {
+  State.selectedLeads.clear();
   const contractors = State.contractors.map(function(c) { return c.name; });
   document.getElementById("main-content").innerHTML = `
     <div class="view-header">
       <div>
         <h1 class="view-title">All Leads</h1>
-        <span class="view-subtitle">// ${State.leads.length} total</span>
+        <span class="view-subtitle" id="leads-subtitle">// ${State.leads.length} total</span>
       </div>
-      <div class="header-ActionTypes">
+      <div class="header-actions">
         <button class="btn-ghost" onclick="refreshData()">
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><polyline points="23,4 23,10 17,10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="1,20 1,14 7,14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Refresh
@@ -744,9 +746,35 @@ function renderLeads() {
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="7,10 12,15 17,10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Export CSV
         </button>
-        ${isAdmin() ? `<button class="btn-primary" onclick="openAddLeadModal()">+ Add Lead</button>` : ""}
+        ${isAdmin() ? `
+        <button class="btn-ghost btn-danger-ghost" onclick="confirmClearAll()" title="Delete all leads — fresh start">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Clear All
+        </button>
+        <button class="btn-primary" onclick="openAddLeadModal()">+ Add Lead</button>` : ""}
       </div>
     </div>
+
+    <!-- Bulk Action Bar (hidden until selection) -->
+    <div class="bulk-bar" id="bulk-bar" style="display:none">
+      <span class="bulk-count" id="bulk-count">0 selected</span>
+      <div class="bulk-actions">
+        ${isAdmin() ? `
+        <select class="filter-select bulk-assign-select" id="bulk-assign-select" style="min-width:180px;font-size:12px;padding:6px 10px">
+          <option value="">Assign to agent...</option>
+          ${contractors.map(function(c) { return `<option value="${escHtml(c)}">${escHtml(c)}</option>`; }).join("")}
+        </select>
+        <button class="btn-cyan bulk-btn" onclick="bulkAssign()">Assign Selected</button>
+        <button class="btn-ghost bulk-btn" onclick="bulkExportSelected()">Export Selected</button>
+        <button class="bulk-btn bulk-delete-btn" onclick="bulkDelete()">
+          <svg width="13" height="13" fill="none" viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+          Delete Selected
+        </button>` : `
+        <button class="btn-ghost bulk-btn" onclick="bulkExportSelected()">Export Selected</button>`}
+        <button class="btn-ghost bulk-btn" onclick="clearSelection()">Clear Selection</button>
+      </div>
+    </div>
+
     <div class="filters-bar">
       <div class="search-wrap">
         <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -756,13 +784,130 @@ function renderLeads() {
         <option value="all">All Statuses</option>
         ${Config.leadStatuses.map(function(s) { return `<option value="${s}" ${State.filters.status===s?"selected":""}>${s}</option>`; }).join("")}
       </select>
-      <select class="filter-select" id="filter-AgentEmail" onchange="applyFilters()">
-        <option value="all">All AgentEmails</option>
+      <select class="filter-select" id="filter-agent" onchange="applyFilters()">
+        <option value="all">All Agents</option>
         ${contractors.map(function(c) { return `<option value="${c}" ${State.filters.assignedTo===c?"selected":""}>${c}</option>`; }).join("")}
       </select>
     </div>
     <div class="card" id="leads-table-wrap">${renderLeadsTable(getFilteredLeads())}</div>
   `;
+}
+
+// ── Multi-select helpers ─────────────────────────────────────
+function toggleLeadSelect(id, checked) {
+  if (checked) { State.selectedLeads.add(id); }
+  else         { State.selectedLeads.delete(id); }
+  updateBulkBar();
+}
+
+function toggleSelectAll(checked) {
+  const checkboxes = document.querySelectorAll(".lead-checkbox");
+  checkboxes.forEach(function(cb) {
+    cb.checked = checked;
+    if (checked) { State.selectedLeads.add(cb.dataset.id); }
+    else         { State.selectedLeads.delete(cb.dataset.id); }
+  });
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const bar   = document.getElementById("bulk-bar");
+  const count = document.getElementById("bulk-count");
+  const n     = State.selectedLeads.size;
+  if (!bar) return;
+  bar.style.display = n > 0 ? "flex" : "none";
+  if (count) count.textContent = n + " lead" + (n !== 1 ? "s" : "") + " selected";
+
+  // Update select-all checkbox state
+  const allCbs  = document.querySelectorAll(".lead-checkbox");
+  const selAll  = document.getElementById("select-all-cb");
+  if (selAll && allCbs.length) {
+    selAll.indeterminate = n > 0 && n < allCbs.length;
+    selAll.checked       = n === allCbs.length;
+  }
+}
+
+function clearSelection() {
+  State.selectedLeads.clear();
+  document.querySelectorAll(".lead-checkbox").forEach(function(cb) { cb.checked = false; });
+  const selAll = document.getElementById("select-all-cb");
+  if (selAll) { selAll.checked = false; selAll.indeterminate = false; }
+  updateBulkBar();
+}
+
+// ── Bulk Actions ─────────────────────────────────────────────
+async function bulkDelete() {
+  const ids = Array.from(State.selectedLeads);
+  if (!ids.length) return;
+  if (!confirm("Permanently delete " + ids.length + " lead" + (ids.length !== 1 ? "s" : "") + "? This cannot be undone.")) return;
+  setLoading(true);
+  try {
+    for (var i = 0; i < ids.length; i++) {
+      await Graph.deleteLead(ids[i]);
+    }
+    UI.showToast("Deleted " + ids.length + " lead" + (ids.length !== 1 ? "s" : ""), "success");
+    State.selectedLeads.clear();
+    await loadAllData();
+    renderLeads();
+  } catch (err) {
+    UI.showToast("Failed: " + err.message, "error");
+  } finally { setLoading(false); }
+}
+
+async function bulkAssign() {
+  const ids   = Array.from(State.selectedLeads);
+  const agent = (document.getElementById("bulk-assign-select") || {}).value;
+  if (!ids.length) return;
+  if (!agent) { UI.showToast("Please select an agent first.", "error"); return; }
+  if (!confirm("Assign " + ids.length + " lead" + (ids.length !== 1 ? "s" : "") + " to " + agent + "?")) return;
+  setLoading(true);
+  try {
+    for (var i = 0; i < ids.length; i++) {
+      await Graph.updateLead(ids[i], { Agent_x0020_Assigned: agent });
+    }
+    UI.showToast("Assigned " + ids.length + " leads to " + agent, "success");
+    State.selectedLeads.clear();
+    await loadAllData();
+    renderLeads();
+  } catch (err) {
+    UI.showToast("Failed: " + err.message, "error");
+  } finally { setLoading(false); }
+}
+
+function bulkExportSelected() {
+  const ids   = Array.from(State.selectedLeads);
+  const leads = State.leads.filter(function(l) { return ids.includes(l.id); });
+  if (!leads.length) return;
+  const today = new Date().toISOString().slice(0,10);
+  const csv   = ["Name,Type,Email,Phone,Status,Source,Assigned To,MRC,Current Products,Last Contacted,Notes"]
+    .concat(leads.map(function(l) {
+      return [l.name,l.leadType,l.email,l.phone,l.status,l.source,l.assignedTo,l.currentMRC,l.currentProducts,l.lastContacted,l.notes]
+        .map(function(v){ return '"'+String(v||"").replace(/"/g,'""')+'"'; }).join(",");
+    })).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download = "raimak-leads-selected-" + today + ".csv";
+  a.click();
+  UI.showToast("Exported " + leads.length + " leads!", "success");
+}
+
+async function confirmClearAll() {
+  const total = State.leads.length;
+  if (!total) { UI.showToast("No leads to clear.", "info"); return; }
+  const input = prompt("This will permanently delete ALL " + total + " leads.\n\nType DELETE to confirm:");
+  if (input !== "DELETE") { UI.showToast("Clear all cancelled.", "info"); return; }
+  setLoading(true);
+  try {
+    for (var i = 0; i < State.leads.length; i++) {
+      await Graph.deleteLead(State.leads[i].id);
+    }
+    UI.showToast("All " + total + " leads deleted. Clean slate!", "success");
+    State.selectedLeads.clear();
+    await loadAllData();
+    renderLeads();
+  } catch (err) {
+    UI.showToast("Failed: " + err.message, "error");
+  } finally { setLoading(false); }
 }
 
 function getFilteredLeads() {
@@ -780,18 +925,19 @@ function getFilteredLeads() {
 function applyFilters() {
   State.filters.search     = (document.getElementById("search-input")  || {}).value || "";
   State.filters.status     = (document.getElementById("filter-status") || {}).value || "all";
-  State.filters.assignedTo = (document.getElementById("filter-AgentEmail")  || {}).value || "all";
+  State.filters.assignedTo = (document.getElementById("filter-agent")  || {}).value || "all";
   const wrap = document.getElementById("leads-table-wrap");
   if (wrap) wrap.innerHTML = renderLeadsTable(getFilteredLeads());
 }
 
-// compact = dashboard recent leads (fewer cols), AgentEmailView = hide edit/delete
-function renderLeadsTable(leads, compact, AgentEmailView) {
+// compact = dashboard recent leads (fewer cols), agentView = hide edit/delete
+function renderLeadsTable(leads, compact, agentView) {
   if (!leads.length) return `<div class="empty-state"><p>No leads found.</p></div>`;
   return `
     <div class="table-wrap">
       <table class="data-table">
         <thead><tr>
+          ${compact ? "" : `<th style="width:36px"><input type="checkbox" id="select-all-cb" class="lead-cb" onchange="toggleSelectAll(this.checked)" title="Select all"></th>`}
           <th>Name</th>
           <th>Type</th>
           <th>Status</th>
@@ -803,9 +949,11 @@ function renderLeadsTable(leads, compact, AgentEmailView) {
           ${leads.map(function(lead) {
             const statusCls = "status-" + lead.status.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
             const typeCls   = lead.leadType ? "lead-type-" + lead.leadType.toLowerCase() : "";
+            const isChecked = State.selectedLeads.has(lead.id);
             return `
-              <tr class="lead-row ${lead.flags && lead.flags.includes("needs_recycle") ? "row-warn" : ""}"
+              <tr class="lead-row ${lead.flags && lead.flags.includes("needs_recycle") ? "row-warn" : ""} ${isChecked ? "row-selected" : ""}"
                   onclick="${isAdmin() ? "openEditLeadModal('" + lead.id + "')" : ""}">
+                ${compact ? "" : `<td onclick="event.stopPropagation()" style="width:36px"><input type="checkbox" class="lead-checkbox lead-cb" data-id="${lead.id}" ${isChecked?"checked":""} onchange="toggleLeadSelect('${lead.id}',this.checked)"></td>`}
                 <td><span class="lead-name">${escHtml(lead.name)}</span>${lead.source ? `<span class="lead-source">${escHtml(lead.source)}</span>` : ""}</td>
                 <td>${lead.leadType ? `<span class="lead-type-badge ${typeCls}">${escHtml(lead.leadType)}</span>` : "—"}</td>
                 <td><span class="status-badge ${statusCls}">${lead.status}</span></td>
@@ -814,7 +962,7 @@ function renderLeadsTable(leads, compact, AgentEmailView) {
                 ${compact ? "" : `
                 <td class="td-mono">${lead.currentMRC ? "$" + escHtml(lead.currentMRC) + "/mo" : "—"}</td>
                 <td class="td-flags">${(lead.flags||[]).map(function(f) { return `<span class="flag flag-${f}">${flagLabel(f)}</span>`; }).join("")}</td>
-                <td class="td-ActionTypes">
+                <td class="td-actions">
                   ${isAdmin() ? `
                     <button class="btn-icon" onclick="event.stopPropagation();openEditLeadModal('${lead.id}')" title="Edit">
                       <svg width="13" height="13" fill="none" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -851,20 +999,20 @@ async function renderDailyReport() {
       <div class="kpi-grid">
         <div class="kpi-card kpi-primary"><span class="kpi-label">Total Contacts Today</span><span class="kpi-value">${stats.reduce(function(s,a){return s+a.contacts;},0)}</span></div>
         <div class="kpi-card kpi-success"><span class="kpi-label">Total Sales Today</span><span class="kpi-value">${State.todaySales.length}</span></div>
-        <div class="kpi-card kpi-info"><span class="kpi-label">Active AgentEmails</span><span class="kpi-value">${stats.length}</span></div>
-        <div class="kpi-card kpi-neutral"><span class="kpi-label">Avg Contacts/AgentEmail</span><span class="kpi-value">${stats.length?Math.round(stats.reduce(function(s,a){return s+a.contacts;},0)/stats.length):0}</span></div>
+        <div class="kpi-card kpi-info"><span class="kpi-label">Active Agents</span><span class="kpi-value">${stats.length}</span></div>
+        <div class="kpi-card kpi-neutral"><span class="kpi-label">Avg Contacts/Agent</span><span class="kpi-value">${stats.length?Math.round(stats.reduce(function(s,a){return s+a.contacts;},0)/stats.length):0}</span></div>
       </div>
       <div class="card">
-        <div class="card-header"><h2 class="card-title">AgentEmail Breakdown</h2></div>
+        <div class="card-header"><h2 class="card-title">Agent Breakdown</h2></div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>AgentEmail</th><th>Contacts Today</th><th>Sales Today</th><th>Limit</th><th>Last ActionType</th></tr></thead>
+            <thead><tr><th>Agent</th><th>Contacts Today</th><th>Sales Today</th><th>Limit</th><th>Last Action</th></tr></thead>
             <tbody>
               ${stats.length ? stats.map(function(a) {
                 const pct  = Math.round((a.contacts/Config.rules.maxContactsPerDay)*100);
-                const last = a.ActionTypes.length ? a.ActionTypes[0] : null;
+                const last = a.actions.length ? a.actions[0] : null;
                 return `<tr>
-                  <td><span class="lead-name">${escHtml(a.AgentEmail)}</span></td>
+                  <td><span class="lead-name">${escHtml(a.agent)}</span></td>
                   <td>
                     <div style="display:flex;align-items:center;gap:10px">
                       <span class="td-mono">${a.contacts}</span>
@@ -889,8 +1037,8 @@ async function renderDailyReport() {
 function exportReportCSV() {
   const stats = window._reportStats || [];
   const today = new Date().toISOString().split("T")[0];
-  const csv   = ["AgentEmail,Contacts Today,Sales Today,Date"]
-    .concat(stats.map(function(a) { return [a.AgentEmail,a.contacts,a.sold,today].map(function(v){return '"'+String(v||"").replace(/"/g,'""')+'"';}).join(","); }))
+  const csv   = ["Agent,Contacts Today,Sales Today,Date"]
+    .concat(stats.map(function(a) { return [a.agent,a.contacts,a.sold,today].map(function(v){return '"'+String(v||"").replace(/"/g,'""')+'"';}).join(","); }))
     .join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
@@ -904,17 +1052,17 @@ function exportReportCSV() {
 // ============================================================
 function renderContractors() {
   const { contractors, leads } = State;
-  const max = Config.rules.maxLeadsPerAgentEmail;
+  const max = Config.rules.maxLeadsPerAgent;
   document.getElementById("main-content").innerHTML = `
     <div class="view-header">
       <h1 class="view-title">Contractors</h1>
-      <span class="view-subtitle">// ${contractors.length} AgentEmails</span>
+      <span class="view-subtitle">// ${contractors.length} agents</span>
     </div>
     <div class="contractor-grid">
       ${contractors.map(function(c) {
         const count     = leads.filter(function(l){return l.assignedTo===c.name&&!Config.terminalStatuses.includes(l.status);}).length;
         const pct       = Math.min(100,Math.round((count/max)*100));
-        const contacts  = Graph.AgentEmailContactsToday(c.name, State.activityLog);
+        const contacts  = Graph.agentContactsToday(c.name, State.activityLog);
         return `
           <div class="contractor-card">
             <div class="contractor-header">
@@ -945,14 +1093,14 @@ function renderActivity() {
     <div class="card">
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Time</th><th>Lead</th><th>ActionType</th><th>AgentEmail</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Time</th><th>Lead</th><th>Action</th><th>Agent</th><th>Notes</th></tr></thead>
           <tbody>
             ${activityLog.length ? activityLog.map(function(e) { return `
               <tr>
                 <td class="td-mono">${formatDateTime(e.timestamp)}</td>
-                <td>${escHtml(e.Title||e.leadId||"—")}</td>
-                <td><span class="ActionType-badge">${escHtml(e.ActionType||"—")}</span></td>
-                <td>${escHtml(e.AgentEmail||"—")}</td>
+                <td>${escHtml(e.leadName||e.leadId||"—")}</td>
+                <td><span class="action-badge">${escHtml(e.action||"—")}</span></td>
+                <td>${escHtml(e.agent||"—")}</td>
                 <td class="td-notes">${escHtml(e.notes||"")}</td>
               </tr>`;
             }).join("") : `<tr><td colspan="5" class="empty-state">No activity yet.</td></tr>`}
@@ -1049,7 +1197,7 @@ function renderLeadModal(lead) {
     </div>
     <div class="modal-footer">
       <button class="btn-ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn-primary" onclick="${isEdit ? 'submitEditLead()' : 'submitAddLead()' }">${isEdit ? 'Save Changes' : 'Add Lead'}</button>
+      <button class="btn-primary" onclick="${isEdit ? 'submitEditLead()' : 'submitAddLead()'}">${isEdit ? 'Save Changes' : 'Add Lead'}</button>
     </div>
   `;
   document.getElementById("modal-overlay").style.display = "flex";
@@ -1061,7 +1209,7 @@ async function submitAddLead() {
   setLoading(true);
   try {
     const newLead = await Graph.addLead(fields);
-    await Graph.logActivity({ LeadID: newLead.id, Title: fields.Title, ActionType: "Lead Created", AgentEmail: (State.currentUser&&State.currentUser.name)||"" });
+    await Graph.logActivity({ LeadId: newLead.id, LeadName: fields.Title, Action: "Lead Created", Agent: (State.currentUser&&State.currentUser.name)||"" });
     await refreshData();
     closeModal();
     UI.showToast("Lead added!", "success");
@@ -1075,7 +1223,7 @@ async function submitEditLead() {
   setLoading(true);
   try {
     await Graph.updateLead(State.editingLeadId, fields);
-    await Graph.logActivity({ LeadID: State.editingLeadId, Title: fields.Title, ActionType: "Lead Updated", AgentEmail: (State.currentUser&&State.currentUser.name)||"" });
+    await Graph.logActivity({ LeadId: State.editingLeadId, LeadName: fields.Title, Action: "Lead Updated", Agent: (State.currentUser&&State.currentUser.name)||"" });
     await refreshData();
     closeModal();
     UI.showToast("Lead updated!", "success");
@@ -1093,7 +1241,7 @@ function collectLeadForm() {
     Phone:           ((document.getElementById("f-phone")       ||{}).value||"").trim(),
     Status:          (document.getElementById("f-status")       ||{}).value || "New",
     LeadSource:      (document.getElementById("f-source")       ||{}).value || "",
-    AgentEmail_x0020_Assigned:      (document.getElementById("f-assigned")     ||{}).value || "",
+    AssignedTo:      (document.getElementById("f-assigned")     ||{}).value || "",
     LastContacted:   (document.getElementById("f-lastcontacted")||{}).value || "",
     CurrentMRC:      (document.getElementById("f-mrc")          ||{}).value || "",
     CurrentProducts: (document.getElementById("f-products")     ||{}).value || "",
@@ -1130,7 +1278,7 @@ function setLoading(on) {
 }
 
 function updateBadges() {
-  const n = State.leads.filter(function(l) { return l.flags && (l.flags.includes("needs_recycle")||l.flags.includes("AgentEmail_overloaded")); }).length;
+  const n = State.leads.filter(function(l) { return l.flags && (l.flags.includes("needs_recycle")||l.flags.includes("agent_overloaded")); }).length;
   const b = document.getElementById("badge-leads");
   if (b) { b.textContent = n > 0 ? n : ""; b.style.display = n > 0 ? "inline-flex" : "none"; }
 }
@@ -1150,7 +1298,7 @@ function exportCSV() {
   UI.showToast("Exported!", "success");
 }
 
-function flagLabel(f) { return {cool_off:"Cool-off",needs_recycle:"Recycle",AgentEmail_overloaded:"Overloaded"}[f]||f; }
+function flagLabel(f) { return {cool_off:"Cool-off",needs_recycle:"Recycle",agent_overloaded:"Overloaded"}[f]||f; }
 function formatDate(d) { if (!d) return ""; return new Date(d).toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}); }
 function formatTime(d) { if (!d) return ""; return new Date(d).toLocaleTimeString("en-GB",{hour:"2-digit",minute:"2-digit"}); }
 function formatDateTime(d) { if (!d) return ""; return new Date(d).toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}); }
