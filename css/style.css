@@ -1140,7 +1140,88 @@ body::before {
 ::-webkit-scrollbar-thumb { background: var(--border-hi); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 
-/* ── Responsive ─────────────────────────────────────────────── */
+/* ── Bulk Action Bar ────────────────────────────────────────── */
+.bulk-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--navy);
+  border: 1px solid var(--cyan);
+  border-radius: var(--radius);
+  margin-bottom: 12px;
+  animation: fadeUp 0.2s ease both;
+  flex-wrap: wrap;
+  box-shadow: 0 0 20px var(--cyan-dim);
+}
+
+.bulk-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cyan);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+.bulk-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.bulk-btn {
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  transition: all var(--transition);
+  cursor: pointer;
+}
+
+.bulk-delete-btn {
+  background: var(--red-dim);
+  color: var(--red);
+  border: 1px solid rgba(255,71,87,0.3);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.bulk-delete-btn:hover {
+  background: rgba(255,71,87,0.2);
+  box-shadow: 0 0 12px rgba(255,71,87,0.2);
+}
+
+/* ── Checkboxes ─────────────────────────────────────────────── */
+.lead-cb {
+  width: 15px;
+  height: 15px;
+  accent-color: var(--cyan);
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.row-selected td {
+  background: rgba(0,212,255,0.04) !important;
+}
+
+/* ── Clear All / Danger Ghost ───────────────────────────────── */
+.btn-danger-ghost {
+  color: var(--red) !important;
+  border-color: rgba(255,71,87,0.3) !important;
+}
+
+.btn-danger-ghost:hover {
+  background: var(--red-dim) !important;
+  border-color: var(--red) !important;
+  box-shadow: 0 0 12px rgba(255,71,87,0.15) !important;
+}
 @media (max-width: 1024px) {
   .kpi-grid { grid-template-columns: repeat(2, 1fr); }
   .two-col  { grid-template-columns: 1fr; }
