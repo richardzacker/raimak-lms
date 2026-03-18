@@ -120,7 +120,7 @@ const Graph = (() => {
       lastContacted:   f.LastTouchedOn || f.LastContacted || null,
       createdAt:       item.createdDateTime || f.Created || null,
       modified:        item.lastModifiedDateTime || null,
-      leadType:        f.Item_x0020_Type || f.LeadType || "",
+      leadType:        f.Lead_x0020_Type || f.Type || f.Item_x0020_Type || f.LeadType || "",
       currentMRC:      f.CurrentMRC    || "",
       currentProducts: f.CurrentProducts || "",
       cbr:             f.CBR           || "",
