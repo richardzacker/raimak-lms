@@ -563,10 +563,10 @@ async function agentUpdateStatus(leadId, newStatus) {
     const products = (document.getElementById("feed-products") || {}).value || "";
     const notes    = (document.getElementById("feed-notes")    || {}).value || "";
     await Graph.updateLead(leadId, {
-      Status:          newStatus,
-      LastContacted:   today,
-      CurrentMRC:      mrc,
-      CurrentProducts: products,
+      Status:                newStatus,
+      LastTouchedOn:         today,
+      CurrentMRC:            mrc,
+      CurrentProducts:       products,
     });
     await Graph.logActivity({
       LeadId:     leadId,
@@ -1235,17 +1235,17 @@ function collectLeadForm() {
   const name = ((document.getElementById("f-name")||{}).value||"").trim();
   if (!name) { UI.showToast("Name is required.", "error"); return null; }
   return {
-    Title:           name,
-    LeadType:        (document.getElementById("f-leadtype")     ||{}).value || "",
-    Email:           ((document.getElementById("f-email")       ||{}).value||"").trim(),
-    Phone:           ((document.getElementById("f-phone")       ||{}).value||"").trim(),
-    Status:          (document.getElementById("f-status")       ||{}).value || "New",
-    LeadSource:      (document.getElementById("f-source")       ||{}).value || "",
-    AssignedTo:      (document.getElementById("f-assigned")     ||{}).value || "",
-    LastContacted:   (document.getElementById("f-lastcontacted")||{}).value || "",
-    CurrentMRC:      (document.getElementById("f-mrc")          ||{}).value || "",
-    CurrentProducts: (document.getElementById("f-products")     ||{}).value || "",
-    Notes:           ((document.getElementById("f-notes")       ||{}).value||"").trim(),
+    Title:                name,
+    LeadType:             (document.getElementById("f-leadtype")     ||{}).value || "",
+    Email:                ((document.getElementById("f-email")       ||{}).value||"").trim(),
+    Phone:                ((document.getElementById("f-phone")       ||{}).value||"").trim(),
+    Status:               (document.getElementById("f-status")       ||{}).value || "New",
+    Campaign:             (document.getElementById("f-source")       ||{}).value || "",
+    Agent_x0020_Assigned: (document.getElementById("f-assigned")     ||{}).value || "",
+    LastTouchedOn:        (document.getElementById("f-lastcontacted")||{}).value || "",
+    CurrentMRC:           (document.getElementById("f-mrc")          ||{}).value || "",
+    CurrentProducts:      (document.getElementById("f-products")     ||{}).value || "",
+    Notes:                ((document.getElementById("f-notes")       ||{}).value||"").trim(),
   };
 }
 
