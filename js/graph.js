@@ -130,7 +130,6 @@ const Graph = (() => {
   }
 
   function normalizeLeadItem(item) {
-    console.log("ALL FIELDS:", Object.keys(item.fields || {}));
     const f    = item.fields || {};
     if (f.Agent_x0020_Assigned || f.AgentAssigned) console.log("AGENT FIELDS:", JSON.stringify(Object.entries(f).filter(([k]) => k.toLowerCase().includes('agent'))));
     const first = f.FirstName || f.First_x0020_Name || "";
