@@ -905,7 +905,7 @@ async function bulkAssignType() {
   setLoading(true);
   try {
     for (var i = 0; i < ids.length; i++) {
-      await Graph.updateLead(ids[i], { LeadType: type });
+      await Graph.updateLead(ids[i], { Item_x0020_Type: type });
     }
     UI.showToast("Set " + ids.length + " leads to type: " + type, "success");
     State.selectedLeads.clear();
@@ -1281,7 +1281,7 @@ function collectLeadForm() {
   if (!name) { UI.showToast("Name is required.", "error"); return null; }
   return {
     Title:                name,
-    LeadType:             (document.getElementById("f-leadtype")     ||{}).value || "",
+    Item_x0020_Type:      (document.getElementById("f-leadtype")     ||{}).value || "",
     Email:                ((document.getElementById("f-email")       ||{}).value||"").trim(),
     Phone:                ((document.getElementById("f-phone")       ||{}).value||"").trim(),
     Status:               (document.getElementById("f-status")       ||{}).value || "New",
