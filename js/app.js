@@ -421,7 +421,7 @@ async function confirmDripAssign(leadId) {
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   setLoading(true);
   try {
-    await Graph.updateLead(leadId, { AssignedTo: agent });
+    await Graph.assignAgent(leadId, agent);
     await Graph.logActivity({
       LeadId:   leadId,
       LeadName: lead ? lead.name : "",
@@ -706,7 +706,7 @@ async function assignLead(leadId) {
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   setLoading(true);
   try {
-    await Graph.updateLead(leadId, { AssignedTo: agent });
+    await Graph.assignAgent(leadId, agent);
     await Graph.logActivity({ LeadId: leadId, LeadName: lead ? lead.name : "", Action: "Assigned", Agent: agent, Notes: "Assigned by " + ((State.currentUser && State.currentUser.name) || "Admin") });
     UI.showToast("Assigned to " + agent, "success");
     await loadAllData();
@@ -731,7 +731,7 @@ async function autoAssignLeads() {
     });
     let assigned = 0;
     for (let i = 0; i < Math.min(unassigned.length, slots.length); i++) {
-      await Graph.updateLead(unassigned[i].id, { AssignedTo: slots[i] });
+      await Graph.assignAgent(unassigned[i].id, slots[i]);
       assigned++;
     }
     UI.showToast("Assigned " + assigned + " leads!", "success");
@@ -885,7 +885,7 @@ async function bulkAssign() {
   setLoading(true);
   try {
     for (var i = 0; i < ids.length; i++) {
-      await Graph.updateLead(ids[i], { Agent_x0020_Assigned: agent });
+      await Graph.assignAgent(ids[i], agent);
     }
     UI.showToast("Assigned " + ids.length + " leads to " + agent, "success");
     State.selectedLeads.clear();
@@ -1251,10 +1251,13 @@ function renderLeadModal(lead) {
 async function submitAddLead() {
   const fields = collectLeadForm();
   if (!fields) return;
+  const agentName = fields._agentName;
+  delete fields._agentName;
   setLoading(true);
   try {
     const newLead = await Graph.addLead(fields);
-    await Graph.logActivity({ LeadId: newLead.id, LeadName: fields.Title, Action: "Lead Created", Agent: (State.currentUser&&State.currentUser.name)||"" });
+    if (agentName) await Graph.assignAgent(newLead.id, agentName);
+    await Graph.logActivity({ LeadID: newLead.id, Title: fields.Title, ActionType: "Lead Created", AgentEmail: (State.currentUser&&State.currentUser.email)||"" });
     await refreshData();
     closeModal();
     UI.showToast("Lead added!", "success");
@@ -1265,10 +1268,13 @@ async function submitAddLead() {
 async function submitEditLead() {
   const fields = collectLeadForm();
   if (!fields) return;
+  const agentName = fields._agentName;
+  delete fields._agentName;
   setLoading(true);
   try {
     await Graph.updateLead(State.editingLeadId, fields);
-    await Graph.logActivity({ LeadId: State.editingLeadId, LeadName: fields.Title, Action: "Lead Updated", Agent: (State.currentUser&&State.currentUser.name)||"" });
+    if (agentName) await Graph.assignAgent(State.editingLeadId, agentName);
+    await Graph.logActivity({ LeadID: State.editingLeadId, Title: fields.Title, ActionType: "Lead Updated", AgentEmail: (State.currentUser&&State.currentUser.email)||"" });
     await refreshData();
     closeModal();
     UI.showToast("Lead updated!", "success");
@@ -1277,20 +1283,21 @@ async function submitEditLead() {
 }
 
 function collectLeadForm() {
-  const name = ((document.getElementById("f-name")||{}).value||"").trim();
+  const name      = ((document.getElementById("f-name")||{}).value||"").trim();
+  const agentName = (document.getElementById("f-assigned")||{}).value || "";
   if (!name) { UI.showToast("Name is required.", "error"); return null; }
   return {
-    Title:                name,
-    Lead_x0020_Type:      (document.getElementById("f-leadtype")     ||{}).value || "",
-    Email:                ((document.getElementById("f-email")       ||{}).value||"").trim(),
-    Phone:                ((document.getElementById("f-phone")       ||{}).value||"").trim(),
-    Status:               (document.getElementById("f-status")       ||{}).value || "New",
-    Campaign:             (document.getElementById("f-source")       ||{}).value || "",
-    Agent_x0020_Assigned: (document.getElementById("f-assigned")     ||{}).value || "",
-    LastTouchedOn:        (document.getElementById("f-lastcontacted")||{}).value || "",
-    CurrentMRC:           (document.getElementById("f-mrc")          ||{}).value || "",
-    CurrentProducts:      (document.getElementById("f-products")     ||{}).value || "",
-    Notes:                ((document.getElementById("f-notes")       ||{}).value||"").trim(),
+    Title:           name,
+    Lead_x0020_Type: (document.getElementById("f-leadtype")     ||{}).value || "",
+    Email:           ((document.getElementById("f-email")       ||{}).value||"").trim(),
+    Phone:           ((document.getElementById("f-phone")       ||{}).value||"").trim(),
+    Status:          (document.getElementById("f-status")       ||{}).value || "New",
+    Campaign:        (document.getElementById("f-source")       ||{}).value || "",
+    LastTouchedOn:   (document.getElementById("f-lastcontacted")||{}).value || "",
+    CurrentMRC:      (document.getElementById("f-mrc")          ||{}).value || "",
+    CurrentProducts: (document.getElementById("f-products")     ||{}).value || "",
+    Notes:           ((document.getElementById("f-notes")       ||{}).value||"").trim(),
+    _agentName:      agentName, // passed separately to assignAgent
   };
 }
 
