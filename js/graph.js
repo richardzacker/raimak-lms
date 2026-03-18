@@ -66,7 +66,12 @@ const Graph = (() => {
     const agentId = await resolveAgentId(agentName);
     console.log("assignAgent:", agentName, "→ ID:", agentId);
     if (!agentId) throw new Error("Agent \"" + agentName + "\" not found in Contractor & Employee List.");
-    await updateLead(itemId, { Agent_x0020_AssignedLookupId: agentId });
+    // Try both common SharePoint Lookup ID field name formats
+    try {
+      await updateLead(itemId, { Agent_x0020_AssignedId: agentId });
+    } catch(e) {
+      await updateLead(itemId, { Agent_x0020_AssignedLookupId: agentId });
+    }
   }
 
   // ── Paginate ───────────────────────────────────────────────
