@@ -226,10 +226,15 @@ const Graph = (() => {
 
     const stats = {};
     for (const entry of todayEntries) {
-      const agent = entry.agent || "Unknown";
+      const agent     = entry.agent || "Unknown";
+      const isContact = entry.action && (
+        entry.action.indexOf("Status:") === 0 ||
+        entry.action === "1st Contact" ||
+        entry.action === "2nd Contact" ||
+        entry.action === "3rd Contact"
+      );
       if (!stats[agent]) stats[agent] = { agent, contacts: 0, sold: 0, actions: [], uniqueLeads: new Set() };
-      // Count unique leads touched, not total log entries
-      if (entry.leadId) stats[agent].uniqueLeads.add(entry.leadId);
+      if (isContact && entry.leadId) stats[agent].uniqueLeads.add(entry.leadId);
       if (entry.action === "Status: " + Config.soldStatus) stats[agent].sold++;
       stats[agent].actions.push(entry);
     }
@@ -293,14 +298,21 @@ const Graph = (() => {
     return daysSince < Config.rules.coolOffDays;
   }
 
-  // Count unique leads an agent contacted today (not total log entries)
+  // Count unique leads an agent contacted today (status changes only)
   function agentContactsToday(agentName, activityLog) {
     const today      = new Date().toDateString();
     const agentLower = (agentName || "").toLowerCase().trim();
     const uniqueLeads = new Set();
     activityLog.forEach(function(e) {
-      const entryAgent = (e.agent || "").toLowerCase().trim();
-      if ((entryAgent === agentLower) &&
+      const entryAgent  = (e.agent || "").toLowerCase().trim();
+      const isContact   = e.action && (
+        e.action.indexOf("Status:") === 0 ||
+        e.action === "1st Contact" ||
+        e.action === "2nd Contact" ||
+        e.action === "3rd Contact"
+      );
+      if (isContact &&
+          entryAgent === agentLower &&
           e.timestamp &&
           new Date(e.timestamp).toDateString() === today &&
           e.leadId) {
