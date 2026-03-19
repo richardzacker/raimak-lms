@@ -576,7 +576,7 @@ async function agentUpdateStatus(leadId, newStatus) {
     await Graph.updateLead(leadId, {
       Status:                newStatus,
       LastTouchedOn:         today,
-      CurrentMRC:            mrc,
+      MonthlyRecurringCharge_x0028_MRC:            mrc,
       CurrentProducts:       products,
       CBR:                   cbr,
       BTN:                   btn,
@@ -611,7 +611,7 @@ async function agentSaveNote(leadId) {
   try {
     await Graph.updateLead(leadId, {
       Notes:           notes.value.trim(),
-      CurrentMRC:      (mrc && mrc.value) || "",
+      MonthlyRecurringCharge_x0028_MRC:      (mrc && mrc.value) || "",
       CurrentProducts: (products && products.value) || "",
       CBR:             (cbr && cbr.value) || "",
       BTN:             (btn && btn.value) || "",
@@ -1294,7 +1294,7 @@ function collectLeadForm() {
     Status:          (document.getElementById("f-status")       ||{}).value || "New",
     Campaign:        (document.getElementById("f-source")       ||{}).value || "",
     LastTouchedOn:   (document.getElementById("f-lastcontacted")||{}).value || "",
-    CurrentMRC:      (document.getElementById("f-mrc")          ||{}).value || "",
+    MonthlyRecurringCharge_x0028_MRC:      (document.getElementById("f-mrc")          ||{}).value || "",
     CurrentProducts: (document.getElementById("f-products")     ||{}).value || "",
     Notes:           ((document.getElementById("f-notes")       ||{}).value||"").trim(),
     _agentName:      agentName, // passed separately to assignAgent
