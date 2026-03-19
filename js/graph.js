@@ -188,10 +188,10 @@ const Graph = (() => {
       const f = item.fields || {};
       return {
         id:        item.id,
-        leadId:    f.LeadId    || f.LeadID    || "",
-        leadName:  f.LeadName  || f.Title     || "",
-        action:    f.Action    || f.Activity  || "",
-        agent:     f.Agent     || f.AssignedTo || "",
+        leadId:    f.LeadID    || f.LeadId    || "",
+        leadName:  f.Title     || f.LeadName  || "",
+        action:    f.ActionType || f.Action   || f.Activity || "",
+        agent:     f.AgentEmail || f.Agent    || "",
         agentEmail:f.AgentEmail || "",
         notes:     f.Notes     || "",
         timestamp: item.createdDateTime || f.Created || null,
