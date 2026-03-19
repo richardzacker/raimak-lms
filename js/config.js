@@ -3,8 +3,8 @@
 const Config = {
 
   azure: {
-    clientId:    "YOUR_AZURE_APP_CLIENT_ID",
-    tenantId:    "YOUR_TENANT_ID",
+    clientId:    "ad1b153f-8b6a-4f1c-8ab2-58fcf03cf5c2",
+    tenantId:    "39e14190-0b23-4ecd-99f9-606ad1215881",
     redirectUri: window.location.origin + window.location.pathname,
   },
 
