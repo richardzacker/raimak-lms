@@ -455,12 +455,24 @@ function skipDripLead() {
 // ============================================================
 function renderMyLeads() {
   const user      = State.currentUser;
-  console.log("USER:", user && user.name, user && user.email, "LEADS:", State.leads.map(function(l){return l.assignedTo;}));
   const userName  = ((user && user.name)  || "").toLowerCase().trim();
   const userEmail = ((user && user.email) || "").toLowerCase().trim();
-  const myLeads   = State.leads.filter(function(l) {
-    const assigned = (l.assignedTo || "").toLowerCase().trim();
-    return assigned && (assigned === userName || assigned === userEmail) && !Config.terminalStatuses.includes(l.status);
+
+  // Find the agent's name from the contractors list by matching email
+  // This handles cases where Microsoft display name differs from the name used in assignment
+  const contractor = State.contractors.find(function(c) {
+    return (c.email || "").toLowerCase().trim() === userEmail ||
+           (c.name  || "").toLowerCase().trim() === userName;
+  });
+  const agentName = contractor ? contractor.name.toLowerCase().trim() : userName;
+
+  const myLeads = State.leads.filter(function(l) {
+    const assigned = (l.assignedTo || "").toLowerCase().replace(/\s+/g, " ").trim();
+    return assigned && (
+      assigned === agentName.replace(/\s+/g, " ") ||
+      assigned === userName.replace(/\s+/g, " ")  ||
+      assigned === userEmail.replace(/\s+/g, " ")
+    ) && !Config.terminalStatuses.includes(l.status);
   });
   const contactsToday = Graph.agentContactsToday((user && user.name) || "", State.activityLog);
   const atLimit       = contactsToday >= Config.rules.maxContactsPerDay;
