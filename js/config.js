@@ -40,29 +40,33 @@ const Config = {
     "Sold",
     "Pending Order",
     "FNQ",
-    "Already has Fiber"
+    "Already has Fiber",
+    "TDM"
   ],
 
-  // Terminal statuses
-  terminalStatuses: ["Do Not Call", "Sold", "FNQ", "Already has Fiber"],
+  // Terminal statuses — removed from agent queue, admin only
+  terminalStatuses: ["Do Not Call", "Sold", "FNQ", "Already has Fiber", "TDM"],
+
+  // TDM is kicked back to admin (D2D only)
+  adminOnlyStatuses: ["TDM"],
 
   soldStatus: "Sold",
 
   // Lead types
   leadTypes: ["MLR", "OFS", "Forced"],
 
-  // Current products options
+  // Current products options — alphabetical
   currentProducts: [
+    "Home Phone + Internet + VAS",
     "Internet",
-    "TV",
-    "Phone",
-    "Internet + TV",
     "Internet + Phone",
-    "TV + Phone",
+    "Internet + TV",
     "Internet + TV + Phone",
     "Internet + VAS",
-    "Home Phone + Internet + VAS",
-    "Other"
+    "Other",
+    "Phone",
+    "TV",
+    "TV + Phone",
   ],
 
   leadSources: [
