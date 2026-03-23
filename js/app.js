@@ -372,7 +372,7 @@ function renderDripFeed() {
         <div class="drip-meta">
           ${lead.phone ? `<span class="feed-meta"><svg width="13" height="13" fill="none" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.38 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.96a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16.92z" stroke="currentColor" stroke-width="2"/></svg>${escHtml(lead.phone)}</span>` : ""}
           ${lead.email ? `<span class="feed-meta"><svg width="13" height="13" fill="none" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="2"/><polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="2"/></svg>${escHtml(lead.email)}</span>` : ""}
-          ${lead.source ? `<span class="feed-meta">${escHtml(lead.source)}</span>` : ""}
+          
           ${lead.currentMRC ? `<span class="feed-meta">MRC: $${escHtml(lead.currentMRC)}/mo</span>` : ""}
           ${lead.currentProducts ? `<span class="feed-meta">Has: ${escHtml(lead.currentProducts)}</span>` : ""}
         </div>
@@ -453,6 +453,27 @@ function skipDripLead() {
 // ============================================================
 //  AGENT — MY LEADS
 // ============================================================
+// ── Status color helper ──────────────────────────────────────
+function getStatusColor(status) {
+  const colors = Config.statusColors || {};
+  if ((colors.red    || []).includes(status)) return "#FF4444";
+  if ((colors.yellow || []).includes(status)) return "#FFD700";
+  if ((colors.green  || []).includes(status)) return "#00FF88";
+  if ((colors.blue   || []).includes(status)) return "#4D79FF";
+  if ((colors.cyan   || []).includes(status)) return "#00E5FF";
+  if ((colors.white  || []).includes(status)) return "#FFFFFF";
+  return "#7A98C8";
+}
+
+function getStatusDot(status) {
+  const color = getStatusColor(status);
+  return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};flex-shrink:0;margin-right:6px"></span>`;
+}
+
+// Track whether current lead has been saved
+let _leadSaved = false;
+let _currentFeedIndex = 0;
+
 function renderMyLeads() {
   const user      = State.currentUser;
   const userName  = ((user && user.name)  || "").toLowerCase().trim();
@@ -472,6 +493,14 @@ function renderMyLeads() {
       assigned === userEmail.replace(/\s+/g, " ")
     ) && !Config.terminalStatuses.includes(l.status);
   });
+
+  window._myLeads      = myLeads;
+  window._agentName    = agentName;
+  _leadSaved           = false;
+
+  // Clamp index
+  if (_currentFeedIndex >= myLeads.length) _currentFeedIndex = 0;
+
   const contactsToday = Graph.agentContactsToday((user && user.name) || "", State.activityLog);
   const atLimit       = contactsToday >= Config.rules.maxContactsPerDay;
 
@@ -479,7 +508,7 @@ function renderMyLeads() {
     <div class="view-header">
       <div>
         <h1 class="view-title">My Leads</h1>
-        <span class="view-subtitle">// ${myLeads.length} assigned to you</span>
+        <span class="view-subtitle">// ${myLeads.length} remaining · lead ${Math.min(_currentFeedIndex+1, myLeads.length)} of ${myLeads.length}</span>
       </div>
       <div class="contacts-today-badge ${atLimit ? "badge-full" : ""}">
         <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><polyline points="12,6 12,12 16,14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -494,36 +523,46 @@ function renderMyLeads() {
 
     <div id="lead-feed-wrap">${renderLeadFeedCard(myLeads, contactsToday)}</div>
 
-    <div class="card" style="margin-top:20px">
-      <div class="card-header">
-        <h2 class="card-title">All My Assigned Leads</h2>
-        <div class="search-wrap" style="max-width:280px">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-          <input type="text" class="search-input" placeholder="Search to pull up a lead..." oninput="searchMyLeads(this.value)" id="my-leads-search" style="padding-left:32px;font-size:12px">
+    <!-- Search — only visible after save -->
+    <div id="lead-search-section" style="display:none;margin-top:20px">
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title">Find a Lead</h2>
+          <span class="card-meta">Search by name, phone or address</span>
         </div>
+        <div style="padding:16px 20px">
+          <div class="search-wrap">
+            <svg width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/><line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <input type="text" class="search-input" placeholder="Search name, phone, address..." oninput="searchMyLeads(this.value)" id="my-leads-search">
+          </div>
+        </div>
+        <div id="my-leads-table"></div>
       </div>
-      <div id="my-leads-table">${renderLeadsTable(myLeads, false, true)}</div>
     </div>
   `;
-
-  // Store myLeads for search
-  window._myLeads = myLeads;
 }
 
 function searchMyLeads(q) {
-  const leads   = window._myLeads || [];
-  const filtered = !q.trim() ? leads : leads.filter(function(l) {
+  const leads    = window._myLeads || [];
+  const filtered = !q.trim() ? [] : leads.filter(function(l) {
     return l.name.toLowerCase().includes(q.toLowerCase()) ||
-           (l.phone || "").includes(q) ||
+           (l.phone   || "").includes(q) ||
+           (l.btn     || "").includes(q) ||
+           (l.cbr     || "").includes(q) ||
            (l.address || "").toLowerCase().includes(q.toLowerCase());
   });
   const wrap = document.getElementById("my-leads-table");
-  if (wrap) wrap.innerHTML = renderLeadsTable(filtered, false, true);
+  if (!wrap) return;
+  if (!q.trim()) { wrap.innerHTML = ""; return; }
+  wrap.innerHTML = filtered.length ? renderLeadsTable(filtered, false, true) : `<div class="empty-state">No leads found for "${escHtml(q)}"</div>`;
 
-  // If exactly one result found, load it in the feed card
+  // Clicking a row pulls it up in the feed card
   if (filtered.length === 1) {
     const feedWrap = document.getElementById("lead-feed-wrap");
-    if (feedWrap) feedWrap.innerHTML = renderLeadFeedCard(filtered, 0, true);
+    if (feedWrap) {
+      _leadSaved = false;
+      feedWrap.innerHTML = renderLeadFeedCard(filtered, 0, true);
+    }
   }
 }
 
@@ -560,26 +599,26 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
 
       ${lead.notes ? `<div class="feed-notes">${escHtml(lead.notes)}</div>` : ""}
 
-      <!-- Customer info boxes -->
+      <!-- Customer info boxes — BTN, Package, Price, CBR -->
       <div class="feed-customer-info">
-        <div class="form-group">
-          <label>CBR</label>
-          <input type="text" id="feed-cbr" class="form-input" placeholder="Enter CBR" value="${escHtml(lead.cbr||"")}">
-        </div>
         <div class="form-group">
           <label>BTN</label>
           <input type="text" id="feed-btn" class="form-input" placeholder="Enter BTN" value="${escHtml(lead.btn||"")}">
         </div>
         <div class="form-group">
-          <label>Monthly Recurring Charge (MRC)</label>
-          <input type="text" id="feed-mrc" class="form-input" placeholder="e.g. $104.49" value="${escHtml(lead.currentMRC||"")}">
-        </div>
-        <div class="form-group">
-          <label>Current Products</label>
+          <label>Package / Current Products</label>
           <select id="feed-products" class="form-input">
             <option value="">Select products...</option>
             ${Config.currentProducts.map(function(p) { return `<option value="${p}" ${lead.currentProducts===p?"selected":""}>${p}</option>`; }).join("")}
           </select>
+        </div>
+        <div class="form-group">
+          <label>Price (MRC)</label>
+          <input type="text" id="feed-mrc" class="form-input" placeholder="e.g. $104.49" value="${escHtml(lead.currentMRC||"")}">
+        </div>
+        <div class="form-group">
+          <label>CBR</label>
+          <input type="text" id="feed-cbr" class="form-input" placeholder="Enter CBR" value="${escHtml(lead.cbr||"")}">
         </div>
       </div>
 
@@ -607,6 +646,7 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
         ⚡ Status staged — click Save to confirm
       </div>
     </div>`;
+}
 }
 
 // Stage a status selection — highlight the button, don't save yet
@@ -1071,7 +1111,7 @@ function renderLeadsTable(leads, compact, agentView) {
               <tr class="lead-row ${lead.flags && lead.flags.includes("needs_recycle") ? "row-warn" : ""} ${isChecked ? "row-selected" : ""}"
                   onclick="${isAdmin() ? "openEditLeadModal('" + lead.id + "')" : ""}">
                 ${compact ? "" : `<td onclick="event.stopPropagation()" style="width:36px"><input type="checkbox" class="lead-checkbox lead-cb" data-id="${lead.id}" ${isChecked?"checked":""} onchange="toggleLeadSelect('${lead.id}',this.checked)"></td>`}
-                <td><span class="lead-name">${escHtml(lead.name)}</span>${lead.source ? `<span class="lead-source">${escHtml(lead.source)}</span>` : ""}</td>
+                <td><span class="lead-name">${escHtml(lead.name)}</span></td>
                 <td>${lead.leadType ? `<span class="lead-type-badge ${typeCls}">${escHtml(lead.leadType)}</span>` : "—"}</td>
                 <td><span class="status-badge ${statusCls}">${lead.status}</span></td>
                 <td>${escHtml(lead.assignedTo || "—")}</td>
@@ -1275,13 +1315,6 @@ function renderLeadModal(lead) {
             ${Config.leadStatuses.map(function(s) { return `<option value="${s}" ${((lead&&lead.status)||"New")===s?"selected":""}>${s}</option>`; }).join("")}
           </select>
         </div>
-        <div class="form-group">
-          <label>Source</label>
-          <select id="f-source" class="form-input">
-            <option value="">Select source</option>
-            ${Config.leadSources.map(function(s) { return `<option value="${s}" ${lead&&lead.source===s?"selected":""}>${s}</option>`; }).join("")}
-          </select>
-        </div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -1374,7 +1407,6 @@ function collectLeadForm() {
   add("Email",                             "f-email",        true);
   add("Phone",                             "f-phone",        true);
   add("Status",                            "f-status");
-  add("Campaign",                          "f-source");
   add("LastTouchedOn",                     "f-lastcontacted");
   add("MonthlyRecurringCharge_x0028_MRC",  "f-mrc",          true);
   add("CurrentProducts",                   "f-products");
