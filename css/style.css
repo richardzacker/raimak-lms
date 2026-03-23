@@ -1297,3 +1297,12 @@ body::before {
 .main-content .bulk-bar          { background: #0D1B3E; border: 1px solid #2563B0; }
 .main-content .assign-agent-card { background: #FFFFFF; border: 1px solid #D0DCF0; }
 .main-content .assign-count      { color: #8EA5C8; }
+
+/* ── Sales Feed & Top 5 hover — match Recent Leads highlight ── */
+.main-content .sale-entry:hover { background: #F4F7FD; }
+.main-content .top5-row:hover   { background: #F4F7FD; }
+.main-content .sale-entry:hover .sale-name  { color: #0D1B3E; }
+.main-content .sale-entry:hover .sale-agent { color: #2563B0; }
+.main-content .sale-entry:hover .sale-time  { color: #6B85B0; }
+.main-content .top5-row:hover .top5-name    { color: #0D1B3E; }
+.main-content .top5-row:hover .top5-count   { color: #2563B0; }
