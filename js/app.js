@@ -299,27 +299,48 @@ function renderDashboard() {
   startSalesFeedPolling();
 }
 
+// Track last known sale count to detect new sales
+let _lastSaleCount = 0;
+
 function startSalesFeedPolling() {
   if (State.salesFeedTimer) clearInterval(State.salesFeedTimer);
+  _lastSaleCount = State.todaySales ? State.todaySales.length : 0;
+
   State.salesFeedTimer = setInterval(async function() {
-    if (State.currentView !== "dashboard") return;
     try {
-      State.todaySales = await Graph.getTodaySales();
-      const feed = document.getElementById("sales-feed");
-      const time = document.getElementById("sales-feed-time");
-      if (!feed) return;
-      if (time) time.textContent = "Updated " + formatTime(new Date().toISOString());
-      if (!State.todaySales.length) return;
-      feed.innerHTML = State.todaySales.slice(0,6).map(function(l) { return `
-        <div class="sale-entry">
-          <div class="sale-icon">&#127881;</div>
-          <div class="sale-info">
-            <span class="sale-name">${escHtml(l.name)}</span>
-            <span class="sale-agent">${escHtml(l.assignedTo||"Unassigned")}</span>
-          </div>
-          <span class="sale-time">${formatTime(l.modified)}</span>
-        </div>`;
-      }).join("");
+      const newSales = await Graph.getTodaySales();
+
+      // Detect new sales since last poll — show banner for ALL users
+      if (newSales.length > _lastSaleCount) {
+        const latest = newSales[newSales.length - 1];
+        UI.showSaleBanner(
+          (latest && latest.name)       || "a customer",
+          (latest && latest.assignedTo) || "An agent"
+        );
+        UI.showConfetti();
+      }
+      _lastSaleCount = newSales.length;
+
+      State.todaySales = newSales;
+
+      // Update dashboard feed if visible
+      if (State.currentView === "dashboard") {
+        const feed = document.getElementById("sales-feed");
+        const time = document.getElementById("sales-feed-time");
+        if (!feed) return;
+        if (time) time.textContent = "Updated " + formatTime(new Date().toISOString());
+        if (!newSales.length) return;
+        feed.innerHTML = newSales.slice(0,6).map(function(l) { return `
+          <div class="sale-entry">
+            <div class="sale-icon">&#127881;</div>
+            <div class="sale-info">
+              <span class="sale-name">${escHtml(l.name)}</span>
+              <span class="sale-agent">${escHtml(l.assignedTo||"Unassigned")}</span>
+            </div>
+            <span class="sale-time">${formatTime(l.modified)}</span>
+          </div>`;
+        }).join("");
+      }
     } catch(e) { /* silent */ }
   }, Config.salesFeedInterval);
 }
@@ -620,6 +641,31 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
           <label>CBR</label>
           <input type="text" id="feed-cbr" class="form-input" placeholder="Enter CBR" value="${escHtml(lead.cbr||"")}">
         </div>
+        <div class="form-group" style="grid-column:1/-1">
+          <label>AutoPay <span style="color:var(--red);font-size:10px">* Required</span></label>
+          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">
+            ${["ACH - Debit Card","ACH - Credit Card","No Auto Pay"].map(function(opt) {
+              const checked = lead.autoPay === opt ? "checked" : "";
+              const id      = "autopay-" + opt.replace(/\s+/g,"-").replace(/[^a-z0-9-]/gi,"");
+              return `<label style="display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12px;color:var(--text-1);cursor:pointer">
+                <input type="radio" name="feed-autopay" id="${id}" value="${opt}" ${checked} style="accent-color:var(--cyan);width:14px;height:14px">
+                ${opt}
+              </label>`;
+            }).join("")}
+          </div>
+        </div>
+      </div>
+
+      <!-- Date-stamped notes -->
+      <div style="margin-bottom:8px">
+        <span class="feed-label">Notes</span>
+        ${lead.notes ? `<div style="background:#F4F7FD;border:1px solid #D0DCF0;border-radius:6px;padding:10px 14px;margin-bottom:8px;max-height:120px;overflow-y:auto">
+          ${(lead.notes||"").split("\n").filter(function(l){return l.trim();}).map(function(line) {
+            const match = line.match(/^\[(\d{2}\/\d{2})\]\s*(.*)/);
+            if (match) return `<div style="margin-bottom:4px"><span style="font-family:var(--font-mono);font-size:10px;color:#2563B0;font-weight:700">${match[1]}</span> <span style="font-size:13px;color:#1A2640">${escHtml(match[2])}</span></div>`;
+            return `<div style="font-size:13px;color:#4A6080;margin-bottom:4px">${escHtml(line)}</div>`;
+          }).join("")}
+        </div>` : ""}
       </div>
 
       <div class="feed-status-row">
@@ -639,13 +685,30 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
       </div>
 
       <div class="feed-note-row" style="margin-top:12px">
-        <textarea id="feed-notes" class="form-input form-textarea" placeholder="Add a note..."></textarea>
+        <div style="flex:1">
+          <div style="font-family:var(--font-mono);font-size:10px;color:#6B85B0;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">
+            ${new Date().toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"2-digit"})} — Today's Note
+          </div>
+          <textarea id="feed-notes" class="form-input form-textarea" placeholder="Add a note for today..."></textarea>
+        </div>
         <button class="btn-primary" id="feed-save-btn" onclick="agentSaveAll('${lead.id}')">Save</button>
+      </div>
+
+      <div style="margin-top:12px">
+        <div style="font-family:var(--font-mono);font-size:10px;color:#6B85B0;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">AutoPay *</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${["ACH - Debit Card","ACH - Credit Card","No Auto Pay"].map(function(opt) {
+            return `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#1A2640;background:#F4F7FD;border:1px solid #D0DCF0;padding:8px 14px;border-radius:6px;transition:all 0.15s">
+              <input type="radio" name="feed-autopay" value="${opt}" ${lead.autoPay===opt?"checked":""} style="accent-color:#2563B0"> ${opt}
+            </label>`;
+          }).join("")}
+        </div>
       </div>
       <div id="feed-staged-notice" style="display:none;margin-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--amber)">
         ⚡ Status staged — click Save to confirm
       </div>
     </div>`;
+}
 }
 
 // Stage a status selection — highlight the button, don't save yet
@@ -694,12 +757,26 @@ async function agentSaveAll(leadId) {
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   if (!lead) return;
 
-  const newStatus = _stagedStatus || lead.status;
-  const mrc       = (document.getElementById("feed-mrc")      || {}).value || "";
-  const products  = (document.getElementById("feed-products") || {}).value || "";
-  const notes     = (document.getElementById("feed-notes")    || {}).value || "";
-  const cbr       = (document.getElementById("feed-cbr")      || {}).value || "";
-  const btn       = (document.getElementById("feed-btn")      || {}).value || "";
+  const newStatus  = _stagedStatus || lead.status;
+  const mrc        = (document.getElementById("feed-mrc")      || {}).value || "";
+  const products   = (document.getElementById("feed-products") || {}).value || "";
+  const newNote    = (document.getElementById("feed-notes")    || {}).value || "";
+  const cbr        = (document.getElementById("feed-cbr")      || {}).value || "";
+  const btn        = (document.getElementById("feed-btn")      || {}).value || "";
+  const autoPayEl  = document.querySelector('input[name="feed-autopay"]:checked');
+  const autoPay    = autoPayEl ? autoPayEl.value : "";
+
+  // Require AutoPay selection
+  if (!autoPay) { UI.showToast("Please select an AutoPay option before saving.", "error"); setLoading(false); return; }
+
+  // Date-stamp the new note and prepend to existing notes
+  let notes = lead.notes || "";
+  if (newNote.trim()) {
+    const today     = new Date();
+    const dateStamp = (today.getMonth()+1).toString().padStart(2,"0") + "/" + today.getDate().toString().padStart(2,"0");
+    const stamped   = "[" + dateStamp + "] " + newNote.trim();
+    notes = notes ? stamped + "\n" + notes : stamped;
+  }
 
   setLoading(true);
   try {
@@ -710,6 +787,7 @@ async function agentSaveAll(leadId) {
     if (cbr)      saveFields["CBR"] = cbr;
     if (btn)      saveFields["BTN"] = btn;
     if (notes)    saveFields["Notes"] = notes;
+    if (autoPay)  saveFields["AutoPay"] = autoPay;
     await Graph.updateLead(leadId, saveFields);
 
     // TDM — unassign and flag for admin
@@ -726,20 +804,36 @@ async function agentSaveAll(leadId) {
       Notes:      notes,
     });
 
-    if (newStatus === Config.soldStatus) UI.showConfetti();
-    else UI.showToast("Saved!", "success");
+    if (newStatus === Config.soldStatus) {
+      UI.showConfetti();
+      UI.showSaleBanner(lead.name, (user && user.name) || "");
+    } else if (newStatus !== "TDM") {
+      UI.showToast("Saved!", "success");
+    }
 
     _stagedStatus = null;
+    _leadSaved    = true;
     await loadAllData();
-    renderMyLeads();
+
+    // Show Next button and search — don't auto-advance
+    const nextRow     = document.getElementById("feed-next-row");
+    const searchSec   = document.getElementById("lead-search-section");
+    const saveBtn     = document.getElementById("feed-save-btn");
+    if (nextRow)   { nextRow.style.display   = "block"; }
+    if (searchSec) { searchSec.style.display = "block"; }
+    if (saveBtn)   { saveBtn.textContent = "Saved ✓"; saveBtn.disabled = true; saveBtn.style.background = "var(--green)"; }
   } catch (err) {
     UI.showToast("Failed: " + err.message, "error");
   } finally { setLoading(false); }
 }
 
 
-// ============================================================
-//  ADMIN — ASSIGN LEADS
+function advanceToNextLead() {
+  _currentFeedIndex++;
+  _leadSaved = false;
+  renderMyLeads();
+}
+
 // ============================================================
 function renderAssignLeads() {
   const { leads, contractors } = State;
@@ -1284,6 +1378,7 @@ function openEditLeadModal(id) {
 function renderLeadModal(lead) {
   const isEdit      = !!lead;
   const contractors = State.contractors.map(function(c) { return c.name; });
+  const today       = new Date().toLocaleDateString("en-US", { month:"2-digit", day:"2-digit" });
 
   document.getElementById("modal").innerHTML = `
     <div class="modal-header">
@@ -1294,7 +1389,25 @@ function renderLeadModal(lead) {
     </div>
     <div class="modal-form">
       <div class="form-row">
-        <div class="form-group"><label>Full Name *</label><input type="text" id="f-name" class="form-input" value="${escHtml((lead&&lead.name)||"")}"></div>
+        <div class="form-group"><label>First Name *</label><input type="text" id="f-firstname" class="form-input" value="${escHtml((lead&&lead.firstName)||"")}"></div>
+        <div class="form-group"><label>Last Name *</label><input type="text" id="f-lastname" class="form-input" value="${escHtml((lead&&lead.lastName)||"")}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Email</label><input type="email" id="f-email" class="form-input" value="${escHtml((lead&&lead.email)||"")}"></div>
+        <div class="form-group"><label>Phone</label><input type="tel" id="f-phone" class="form-input" value="${escHtml((lead&&lead.phone)||"")}"></div>
+      </div>
+
+      <div class="form-section-title">Address</div>
+      <div class="form-group form-group-full" style="margin-bottom:12px">
+        <label>Street Address</label>
+        <input type="text" id="f-address" class="form-input" placeholder="e.g. 125 Brown Rd" value="${escHtml((lead&&lead.address)||"")}">
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>City</label><input type="text" id="f-city" class="form-input" value="${escHtml((lead&&lead.city)||"")}"></div>
+        <div class="form-group"><label>State</label><input type="text" id="f-state" class="form-input" value="${escHtml((lead&&lead.state)||"")}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>Zip</label><input type="text" id="f-zip" class="form-input" value="${escHtml((lead&&lead.zip)||"")}"></div>
         <div class="form-group">
           <label>Lead Type</label>
           <select id="f-leadtype" class="form-input">
@@ -1302,10 +1415,6 @@ function renderLeadModal(lead) {
             ${Config.leadTypes.map(function(t) { return `<option value="${t}" ${lead&&lead.leadType===t?"selected":""}>${t}</option>`; }).join("")}
           </select>
         </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>Email</label><input type="email" id="f-email" class="form-input" value="${escHtml((lead&&lead.email)||"")}"></div>
-        <div class="form-group"><label>Phone</label><input type="tel" id="f-phone" class="form-input" value="${escHtml((lead&&lead.phone)||"")}"></div>
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -1338,6 +1447,25 @@ function renderLeadModal(lead) {
             <option value="">Select products...</option>
             ${Config.currentProducts.map(function(p) { return `<option value="${p}" ${lead&&lead.currentProducts===p?"selected":""}>${p}</option>`; }).join("")}
           </select>
+        </div>
+      </div>
+      <div class="form-group form-group-full" style="margin-bottom:16px">
+        <label>Street Address</label>
+        <input type="text" id="f-address" class="form-input" placeholder="e.g. 125 Brown Rd" value="${escHtml((lead&&lead.address)||"")}">
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label>City</label><input type="text" id="f-city" class="form-input" value="${escHtml((lead&&lead.city)||"")}"></div>
+        <div class="form-group"><label>State</label><input type="text" id="f-state" class="form-input" value="${escHtml((lead&&lead.state)||"")}"></div>
+      </div>
+      <div class="form-group form-group-full" style="margin-bottom:16px">
+        <label>AutoPay</label>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">
+          ${["ACH - Debit Card","ACH - Credit Card","No Auto Pay"].map(function(opt) {
+            const checked = lead&&lead.autoPay===opt?"checked":"";
+            return `<label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+              <input type="radio" name="f-autopay" value="${opt}" ${checked} style="accent-color:#2563B0;width:14px;height:14px"> ${opt}
+            </label>`;
+          }).join("")}
         </div>
       </div>
 
@@ -1389,12 +1517,20 @@ async function submitEditLead() {
 }
 
 function collectLeadForm() {
-  const name      = ((document.getElementById("f-name")||{}).value||"").trim();
+  const firstName = ((document.getElementById("f-firstname")||{}).value||"").trim();
+  const lastName  = ((document.getElementById("f-lastname") ||{}).value||"").trim();
   const agentName = (document.getElementById("f-assigned")||{}).value || "";
-  if (!name) { UI.showToast("Name is required.", "error"); return null; }
 
-  // Only include fields that have values to avoid 400 errors from unrecognised columns
-  const fields = { Title: name, _agentName: agentName };
+  // Support both old f-name and new split first/last
+  const nameEl    = document.getElementById("f-name");
+  const fullName  = nameEl ? ((nameEl.value||"").trim()) : (firstName + " " + lastName).trim();
+
+  if (!firstName && !lastName && !fullName) { UI.showToast("Name is required.", "error"); return null; }
+
+  const fields = { _agentName: agentName };
+  if (firstName) fields["FirstName"]  = firstName;
+  if (lastName)  fields["LastName"]   = lastName;
+  if (fullName && !firstName) fields["Title"] = fullName;
 
   const add = function(key, elId, trim) {
     const el  = document.getElementById(elId);
@@ -1402,16 +1538,29 @@ function collectLeadForm() {
     if (val) fields[key] = val;
   };
 
-  add("Lead_x0020_Type",                  "f-leadtype");
-  add("Email",                             "f-email",        true);
-  add("Phone",                             "f-phone",        true);
-  add("Status",                            "f-status");
-  add("LastTouchedOn",                     "f-lastcontacted");
-  add("MonthlyRecurringCharge_x0028_MRC",  "f-mrc",          true);
-  add("CurrentProducts",                   "f-products");
-  add("Notes",                             "f-notes",        true);
+  add("Lead_x0020_Type",                 "f-leadtype");
+  add("Email",                            "f-email",        true);
+  add("Phone",                            "f-phone",        true);
+  add("Status",                           "f-status");
+  add("LastTouchedOn",                    "f-lastcontacted");
+  add("MonthlyRecurringCharge_x0028_MRC", "f-mrc",          true);
+  add("CurrentProducts",                  "f-products");
+  add("CBR",                              "f-cbr",          true);
+  add("BTN",                              "f-btn",          true);
+  add("WorkAddress",                      "f-address",      true);
+  add("WorkCity",                         "f-city",         true);
+  add("State",                            "f-state",        true);
+  add("Zip",                              "f-zip",          true);
+  add("AutoPay",                          "f-autopay");
 
-  // Always include Status so it doesn't get lost
+  // Date-stamp the note before saving
+  const notesEl = document.getElementById("f-notes");
+  if (notesEl && notesEl.value.trim()) {
+    const dateStamp = new Date().toLocaleDateString("en-US", { month:"2-digit", day:"2-digit", year:"2-digit" });
+    const existing  = fields["Notes"] || "";
+    fields["Notes"] = "[" + dateStamp + "] " + notesEl.value.trim() + (existing ? "\n" + existing : "");
+  }
+
   if (!fields.Status) fields.Status = "New";
 
   return fields;
@@ -1490,5 +1639,40 @@ const UI = {
     el.innerHTML = "&#127881; SOLD! &#127881;";
     document.body.appendChild(el);
     setTimeout(function(){el.remove();},2600);
+  },
+  showSaleBanner: function(leadName, agentName) {
+    const existing = document.getElementById("sale-banner");
+    if (existing) existing.remove();
+    const banner = document.createElement("div");
+    banner.id = "sale-banner";
+    banner.innerHTML = `
+      <div style="display:flex;align-items:center;gap:16px;justify-content:center;flex:1">
+        <span style="font-size:20px">&#127881;</span>
+        <strong>${escHtml(agentName || "Someone")}</strong>
+        <span>just closed a sale —</span>
+        <strong>${escHtml(leadName || "")}</strong>
+        <span style="font-size:20px">&#127881;</span>
+      </div>
+      <button onclick="document.getElementById('sale-banner').remove()"
+        style="background:transparent;border:1px solid rgba(255,255,255,0.3);color:white;padding:4px 12px;border-radius:4px;cursor:pointer;font-family:'Rajdhani',sans-serif;font-size:13px;flex-shrink:0">
+        Dismiss
+      </button>`;
+    banner.style.cssText = `
+      position:fixed;top:32px;left:0;right:0;z-index:9997;
+      background:linear-gradient(90deg,#0D1B3E,#1B4F8A,#0D1B3E);
+      color:#FFFFFF;
+      padding:12px 24px;
+      display:flex;
+      align-items:center;
+      gap:16px;
+      font-family:'Rajdhani',sans-serif;
+      font-size:18px;
+      font-weight:600;
+      letter-spacing:1px;
+      border-bottom:3px solid #00FF88;
+      box-shadow:0 4px 24px rgba(0,255,136,0.3);
+      animation:bannerSlide 0.4s ease both;
+    `;
+    document.body.appendChild(banner);
   },
 };
