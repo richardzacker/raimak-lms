@@ -24,7 +24,7 @@ const Config = {
 
   rules: {
     coolOffDays:         2,
-    maxLeadsPerAgent:    50,
+    maxLeadsPerAgent:    9999,
     maxContactsPerDay:   5,
     recycleAfterDays:    30,
     appVersion:          "3.0",
