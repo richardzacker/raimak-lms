@@ -1306,3 +1306,18 @@ body::before {
 .main-content .sale-entry:hover .sale-time  { color: #6B85B0; }
 .main-content .top5-row:hover .top5-name    { color: #0D1B3E; }
 .main-content .top5-row:hover .top5-count   { color: #2563B0; }
+
+/* ── Hover text fix for Sales Feed & Top 5 on white background ─ */
+.main-content .sale-entry:hover                { background: #0D1B3E; }
+.main-content .sale-entry:hover .sale-name     { color: #FFFFFF; }
+.main-content .sale-entry:hover .sale-agent    { color: #00E5FF; }
+.main-content .sale-entry:hover .sale-time     { color: #8EA5C8; }
+.main-content .top5-row:hover                  { background: #0D1B3E; }
+.main-content .top5-row:hover .top5-name       { color: #FFFFFF; }
+.main-content .top5-row:hover .top5-count      { color: #00FF88; }
+.main-content .top5-row:hover .sale-time       { color: #8EA5C8; }
+
+/* ── Pipeline Status — light blue-grey background so New badge reads ─ */
+.main-content .status-breakdown { background: #EDF2FA; border-radius: 0 0 10px 10px; padding: 12px 20px 16px; }
+.main-content .status-bar-wrap  { background: #C8D8EE; }
+.main-content .status-count     { color: #3D5280; }
