@@ -247,6 +247,85 @@ const Graph = (() => {
   }
 
   // ============================================================
+  //  REPORTING WRITE-BACK
+  // ============================================================
+
+  async function writeSaleToReportingLists(lead, agentName, program) {
+    await resolveSiteIds();
+    const today = new Date().toISOString();
+    const site  = siteIds.leadship;
+
+    // 1. Orders & Installs
+    await apiFetch(
+      base + "/sites/" + site + "/lists/" + lists.ordersAndInstalls + "/items",
+      "POST",
+      { fields: {
+        Title:       agentName,
+        Program:     program,
+        Date:        today,
+        Top_Agent:   agentName,
+        Top_Product: lead.currentProducts || "",
+        Top_State:   lead.state           || "",
+      }}
+    );
+
+    // 2. Product Performance
+    if (lead.currentProducts) {
+      await apiFetch(
+        base + "/sites/" + site + "/lists/" + lists.productPerformance + "/items",
+        "POST",
+        { fields: {
+          Title:        lead.currentProducts,
+          Program:      program,
+          Date:         today,
+          Product_Name: lead.currentProducts,
+          Count_Sold:   1,
+        }}
+      );
+    }
+
+    // 3. Agent Performance
+    await apiFetch(
+      base + "/sites/" + site + "/lists/" + lists.agentPerformance + "/items",
+      "POST",
+      { fields: {
+        Title:      agentName,
+        Program:    program,
+        Date:       today,
+        Agent_Name: agentName,
+        Orders_MTD: 1,
+      }}
+    );
+
+    // 4. State Performance
+    if (lead.state) {
+      await apiFetch(
+        base + "/sites/" + site + "/lists/" + lists.statePerformance + "/items",
+        "POST",
+        { fields: {
+          Title:   lead.state,
+          Program: program,
+          Date:    today,
+          State:   lead.state,
+          Sales:   1,
+        }}
+      );
+    }
+
+    // 5. Operations Health
+    await apiFetch(
+      base + "/sites/" + site + "/lists/" + lists.operationsHealth + "/items",
+      "POST",
+      { fields: {
+        Title:      agentName,
+        Program:    program,
+        Date:       today,
+        Canceled_MTD: 0,
+      }}
+    );
+  }
+
+  // ============================================================
   //  BUSINESS RULES
   // ============================================================
 
@@ -328,6 +407,7 @@ const Graph = (() => {
     getContractors,
     getActivityLog, logActivity,
     getTodaySales, getDailyStats,
+    writeSaleToReportingLists,
     applyBusinessRules, canAgentTakeLead, isInCoolOff, agentContactsToday,
   };
 })();
