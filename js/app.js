@@ -796,12 +796,16 @@ async function agentSaveAll(leadId) {
       Notes:      notes,
     });
 
-    if (newStatus === Config.soldStatus) {
-      UI.showConfetti();
-      UI.showSaleBanner(lead.name, (user && user.name) || "");
-    } else if (newStatus !== "TDM") {
-      UI.showToast("Saved!", "success");
-    }
+  if (newStatus === Config.soldStatus) {
+  UI.showConfetti();
+  UI.showSaleBanner(lead.name, (user && user.name) || "");
+
+  const agentName = (user && user.name) || "";
+  const program   = lead.leadType || "Frontier"; // adjust default if needed
+  await Graph.writeSaleToReportingLists(lead, agentName, program).catch(function(err) {
+    console.warn("Reporting write failed:", err);
+  });
+}
 
     _stagedStatus = null;
     _leadSaved    = true;
