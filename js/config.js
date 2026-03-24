@@ -23,7 +23,6 @@ const Config = {
       agentPerformance:   "93b94795-ae98-4134-9cbc-c92618856012",
       statePerformance:   "9c202207-343c-41af-ae36-bd3797c3f372",
       operationsHealth:   "534d595e-521a-4f02-af02-23e5ee427a74",
-},
     },
     graphBase: "https://graph.microsoft.com/v1.0",
   },
