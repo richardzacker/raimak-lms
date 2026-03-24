@@ -641,61 +641,13 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
           <label>CBR</label>
           <input type="text" id="feed-cbr" class="form-input" placeholder="Enter CBR" value="${escHtml(lead.cbr||"")}">
         </div>
-        <div class="form-group" style="grid-column:1/-1">
-          <label>AutoPay <span style="color:var(--red);font-size:10px">* Required</span></label>
-          <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">
-            ${["ACH - Debit Card","ACH - Credit Card","No Auto Pay"].map(function(opt) {
-              const checked = lead.autoPay === opt ? "checked" : "";
-              const id      = "autopay-" + opt.replace(/\s+/g,"-").replace(/[^a-z0-9-]/gi,"");
-              return `<label style="display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12px;color:var(--text-1);cursor:pointer">
-                <input type="radio" name="feed-autopay" id="${id}" value="${opt}" ${checked} style="accent-color:var(--cyan);width:14px;height:14px">
-                ${opt}
-              </label>`;
-            }).join("")}
-          </div>
+      </div>
+
+      <!-- AutoPay -->
+      <div style="margin-bottom:16px">
+        <div style="font-family:var(--font-mono);font-size:10px;color:#6B85B0;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">
+          AutoPay <span style="color:var(--red)">* Required</span>
         </div>
-      </div>
-
-      <!-- Date-stamped notes -->
-      <div style="margin-bottom:8px">
-        <span class="feed-label">Notes</span>
-        ${lead.notes ? `<div style="background:#F4F7FD;border:1px solid #D0DCF0;border-radius:6px;padding:10px 14px;margin-bottom:8px;max-height:120px;overflow-y:auto">
-          ${(lead.notes||"").split("\n").filter(function(l){return l.trim();}).map(function(line) {
-            const match = line.match(/^\[(\d{2}\/\d{2})\]\s*(.*)/);
-            if (match) return `<div style="margin-bottom:4px"><span style="font-family:var(--font-mono);font-size:10px;color:#2563B0;font-weight:700">${match[1]}</span> <span style="font-size:13px;color:#1A2640">${escHtml(match[2])}</span></div>`;
-            return `<div style="font-size:13px;color:#4A6080;margin-bottom:4px">${escHtml(line)}</div>`;
-          }).join("")}
-        </div>` : ""}
-      </div>
-
-      <div class="feed-status-row">
-        <span class="feed-label">Select Status — click Save to confirm</span>
-        <div class="feed-status-buttons" id="feed-status-buttons">
-          ${Config.leadStatuses.filter(function(s) { return s !== "New"; }).map(function(s) {
-            const cls     = "status-btn-" + s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
-            const isTDM   = s === "TDM";
-            const disabled = (atLimit && !Config.terminalStatuses.includes(s)) || false;
-            return `<button class="status-btn ${cls}" id="sbtn-${s.replace(/\s+/g,"-")}"
-              onclick="stageStatus('${lead.id}','${s}')"
-              ${disabled ? "disabled title='Daily limit reached'" : ""}
-              ${isTDM ? "title='TDM leads are returned to admin queue'" : ""}
-              >${s}${isTDM ? " ↩" : ""}</button>`;
-          }).join("")}
-        </div>
-      </div>
-
-      <div class="feed-note-row" style="margin-top:12px">
-        <div style="flex:1">
-          <div style="font-family:var(--font-mono);font-size:10px;color:#6B85B0;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">
-            ${new Date().toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"2-digit"})} — Today's Note
-          </div>
-          <textarea id="feed-notes" class="form-input form-textarea" placeholder="Add a note for today..."></textarea>
-        </div>
-        <button class="btn-primary" id="feed-save-btn" onclick="agentSaveAll('${lead.id}')">Save</button>
-      </div>
-
-      <div style="margin-top:12px">
-        <div style="font-family:var(--font-mono);font-size:10px;color:#6B85B0;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">AutoPay *</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${["ACH - Debit Card","ACH - Credit Card","No Auto Pay"].map(function(opt) {
             return `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;color:#1A2640;background:#F4F7FD;border:1px solid #D0DCF0;padding:8px 14px;border-radius:6px;transition:all 0.15s">
@@ -704,11 +656,51 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
           }).join("")}
         </div>
       </div>
-      <div id="feed-staged-notice" style="display:none;margin-top:8px;font-family:var(--font-mono);font-size:11px;color:var(--amber)">
-        ⚡ Status staged — click Save to confirm
+
+      <!-- Status buttons -->
+      <div class="feed-status-row">
+        <span class="feed-label">Select Status — click Save to confirm</span>
+        <div class="feed-status-buttons" id="feed-status-buttons">
+          ${Config.leadStatuses.filter(function(s) { return s !== "New"; }).map(function(s) {
+            const cls     = "status-btn-" + s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
+            const isTDM   = s === "TDM";
+            const disabled = atLimit && !Config.terminalStatuses.includes(s);
+            return `<button class="status-btn ${cls}" id="sbtn-${s.replace(/\s+/g,"-")}"
+              onclick="stageStatus('${lead.id}','${s}')"
+              ${disabled ? "disabled title='Daily limit reached'" : ""}
+              >${s}${isTDM ? " ↩" : ""}</button>`;
+          }).join("")}
+        </div>
+      </div>
+
+      <div id="feed-staged-notice" style="display:none;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--amber)"></div>
+
+      <!-- Notes history + today's note -->
+      <div style="margin-top:16px">
+        <span class="feed-label">Notes</span>
+        ${lead.notes ? `<div style="background:#F4F7FD;border:1px solid #D0DCF0;border-radius:6px;padding:10px 14px;margin-top:6px;margin-bottom:8px;max-height:140px;overflow-y:auto">
+          ${(lead.notes||"").split("\n").filter(function(l){return l.trim();}).map(function(line) {
+            const match = line.match(/^\[(\d{2}\/\d{2})\]\s*(.*)/);
+            if (match) return `<div style="margin-bottom:6px"><span style="font-family:var(--font-mono);font-size:10px;color:#2563B0;font-weight:700;background:#E8F0FF;padding:1px 6px;border-radius:3px">${match[1]}</span> <span style="font-size:13px;color:#1A2640">${escHtml(match[2])}</span></div>`;
+            return `<div style="font-size:13px;color:#4A6080;margin-bottom:4px">${escHtml(line)}</div>`;
+          }).join("")}
+        </div>` : ""}
+        <div style="font-family:var(--font-mono);font-size:10px;color:#6B85B0;margin-top:8px;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px">
+          ${new Date().toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"2-digit"})} — Today's Note
+        </div>
+        <div class="feed-note-row">
+          <textarea id="feed-notes" class="form-input form-textarea" placeholder="Add a note for today..."></textarea>
+          <button class="btn-primary" id="feed-save-btn" onclick="agentSaveAll('${lead.id}')">Save</button>
+        </div>
+      </div>
+
+      <!-- Next button — only shows after save -->
+      <div id="feed-next-row" style="display:none;margin-top:12px">
+        <button class="btn-cyan" style="width:100%;justify-content:center;font-size:16px;padding:14px" onclick="advanceToNextLead()">
+          Next Lead →
+        </button>
       </div>
     </div>`;
-}
 
 // Stage a status selection — highlight the button, don't save yet
 function stageStatus(leadId, newStatus) {
