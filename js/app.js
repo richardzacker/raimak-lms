@@ -515,7 +515,17 @@ function renderMyLeads() {
     ) && !Config.terminalStatuses.includes(l.status);
   });
 
-  window._myLeads      = myLeads;
+  // Include ALL assigned leads in search — including cool-off
+  // Cool-off leads are excluded from the auto feed but accessible via search
+  const allMyLeads = State.leads.filter(function(l) {
+    const assigned = (l.assignedTo || "").toLowerCase().replace(/\s+/g, " ").trim();
+    return assigned && (
+      assigned === agentName.replace(/\s+/g, " ") ||
+      assigned === userName.replace(/\s+/g, " ")  ||
+      assigned === userEmail.replace(/\s+/g, " ")
+    ) && !Config.terminalStatuses.includes(l.status);
+  });
+  window._myLeads = allMyLeads;
   window._agentName    = agentName;
   _leadSaved           = false;
 
@@ -577,7 +587,7 @@ function searchMyLeads(q) {
   if (!q.trim()) { wrap.innerHTML = ""; return; }
   wrap.innerHTML = filtered.length ? renderLeadsTable(filtered, false, true) : `<div class="empty-state">No leads found for "${escHtml(q)}"</div>`;
 
-  // Clicking a row pulls it up in the feed card
+  // If exactly one result found, load it in the feed card regardless of cool-off
   if (filtered.length === 1) {
     const feedWrap = document.getElementById("lead-feed-wrap");
     if (feedWrap) {
@@ -612,6 +622,7 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
         </div>
       </div>
       <div class="feed-name">${escHtml(lead.name)}</div>
+      ${Graph.isInCoolOff(lead) ? `<div style="background:#FFF8E1;border:1px solid #FFD700;border-radius:6px;padding:8px 14px;margin-bottom:12px;font-family:var(--font-mono);font-size:11px;color:#8B6914">⏱ This lead is in the ${Config.rules.coolOffDays}-day cool-off period — you can still update it if the customer reached out.</div>` : ""}
       <div class="feed-meta-row">
         ${lead.phone    ? `<span class="feed-meta"><svg width="13" height="13" fill="none" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.38 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.96a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16.92z" stroke="currentColor" stroke-width="2"/></svg>${escHtml(lead.phone)}</span>` : ""}
         ${lead.email    ? `<span class="feed-meta"><svg width="13" height="13" fill="none" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="2"/><polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="2"/></svg>${escHtml(lead.email)}</span>` : ""}
@@ -707,10 +718,12 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
 function stageStatus(leadId, newStatus) {
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   if (!lead) return;
+
+  // Cool-off — warn but don't block. Agent may have received a callback.
   if (Graph.isInCoolOff(lead) && !Config.terminalStatuses.includes(newStatus)) {
-    UI.showToast("This lead is in the " + Config.rules.coolOffDays + "-day cool-off period.", "error");
-    return;
+    UI.showToast("Note: this lead is in the " + Config.rules.coolOffDays + "-day cool-off period.", "info");
   }
+
   _stagedStatus = newStatus;
 
   // Highlight selected button, clear others
