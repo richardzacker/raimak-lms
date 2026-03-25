@@ -691,8 +691,19 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
         <span class="feed-label">Notes</span>
         ${lead.notes ? `<div style="background:#F4F7FD;border:1px solid #D0DCF0;border-radius:6px;padding:10px 14px;margin-top:6px;margin-bottom:8px;max-height:140px;overflow-y:auto">
           ${(lead.notes||"").split("\n").filter(function(l){return l.trim();}).map(function(line) {
-            const match = line.match(/^\[(\d{2}\/\d{2})\]\s*(.*)/);
-            if (match) return `<div style="margin-bottom:6px"><span style="font-family:var(--font-mono);font-size:10px;color:#2563B0;font-weight:700;background:#E8F0FF;padding:1px 6px;border-radius:3px">${match[1]}</span> <span style="font-size:13px;color:#1A2640">${escHtml(match[2])}</span></div>`;
+            const match = line.match(/^\[(\d{2}\/\d{2})(.*?)\]\s*(.*)/);
+            if (match) {
+              const date  = match[1];
+              const agent = match[2] ? match[2].replace(/^\s*-\s*/,"") : "";
+              const text  = match[3];
+              return `<div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #E8EFF8">
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:3px">
+                  <span style="font-family:var(--font-mono);font-size:10px;color:#2563B0;font-weight:700;background:#E8F0FF;padding:1px 6px;border-radius:3px">${date}</span>
+                  ${agent ? `<span style="font-family:var(--font-mono);font-size:10px;color:#6B85B0">${escHtml(agent)}</span>` : ""}
+                </div>
+                <span style="font-size:13px;color:#1A2640">${escHtml(text)}</span>
+              </div>`;
+            }
             return `<div style="font-size:13px;color:#4A6080;margin-bottom:4px">${escHtml(line)}</div>`;
           }).join("")}
         </div>` : ""}
@@ -774,12 +785,13 @@ async function agentSaveAll(leadId) {
   // Require AutoPay selection
   if (!autoPay) { UI.showToast("Please select an AutoPay option before saving.", "error"); setLoading(false); return; }
 
-  // Date-stamp the new note and prepend to existing notes
+  // Date-stamp the new note with agent name and prepend to existing notes
   let notes = lead.notes || "";
   if (newNote.trim()) {
     const today     = new Date();
     const dateStamp = (today.getMonth()+1).toString().padStart(2,"0") + "/" + today.getDate().toString().padStart(2,"0");
-    const stamped   = "[" + dateStamp + "] " + newNote.trim();
+    const agentTag  = (user && user.name) ? " - " + user.name : "";
+    const stamped   = "[" + dateStamp + agentTag + "] " + newNote.trim();
     notes = notes ? stamped + "\n" + notes : stamped;
   }
 
