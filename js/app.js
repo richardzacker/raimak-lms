@@ -691,7 +691,7 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
         <span class="feed-label">Notes</span>
         ${lead.notes ? `<div style="background:#F4F7FD;border:1px solid #D0DCF0;border-radius:6px;padding:10px 14px;margin-top:6px;margin-bottom:8px;max-height:140px;overflow-y:auto">
           ${(lead.notes||"").split("\n").filter(function(l){return l.trim();}).map(function(line) {
-            const match = line.match(/^\[(\d{2}\/\d{2})(.*?)\]\s*(.*)/);
+            const match = line.match(/^\[(\d{2}\/\d{2}(?:\/\d{2})?)(.*?)\]\s*(.*)/);
             if (match) {
               const date  = match[1];
               const agent = match[2] ? match[2].replace(/^\s*-\s*/,"") : "";
@@ -789,7 +789,7 @@ async function agentSaveAll(leadId) {
   let notes = lead.notes || "";
   if (newNote.trim()) {
     const today     = new Date();
-    const dateStamp = (today.getMonth()+1).toString().padStart(2,"0") + "/" + today.getDate().toString().padStart(2,"0");
+    const dateStamp = (today.getMonth()+1).toString().padStart(2,"0") + "/" + today.getDate().toString().padStart(2,"0") + "/" + String(today.getFullYear()).slice(-2);
     const agentTag  = (user && user.name) ? " - " + user.name : "";
     const stamped   = "[" + dateStamp + agentTag + "] " + newNote.trim();
     notes = notes ? stamped + "\n" + notes : stamped;
