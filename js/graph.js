@@ -151,6 +151,8 @@ const Graph = (() => {
       leadType:        f.Lead_x0020_Type || f.Type || f.Item_x0020_Type || f.LeadType || "",
       currentMRC:      f.MonthlyRecurringCharge_x0028_MRC || f.CurrentMRC || f.MRC || "",
       currentProducts: f.CurrentProducts || "",
+      autoPay:         f.AutoPay         || "",
+      previousAgents:  f.PreviousAgents  || "",
     };
   }
 
@@ -247,85 +249,6 @@ const Graph = (() => {
   }
 
   // ============================================================
-  //  REPORTING WRITE-BACK
-  // ============================================================
-
-  async function writeSaleToReportingLists(lead, agentName, program) {
-    await resolveSiteIds();
-    const today = new Date().toISOString();
-    const site  = siteIds.leadship;
-
-    // 1. Orders & Installs
-    await apiFetch(
-      base + "/sites/" + site + "/lists/" + lists.ordersAndInstalls + "/items",
-      "POST",
-      { fields: {
-        Title:       agentName,
-        Program:     program,
-        Date:        today,
-        Top_Agent:   agentName,
-        Top_Product: lead.currentProducts || "",
-        Top_State:   lead.state           || "",
-      }}
-    );
-
-    // 2. Product Performance
-    if (lead.currentProducts) {
-      await apiFetch(
-        base + "/sites/" + site + "/lists/" + lists.productPerformance + "/items",
-        "POST",
-        { fields: {
-          Title:        lead.currentProducts,
-          Program:      program,
-          Date:         today,
-          Product_Name: lead.currentProducts,
-          Count_Sold:   1,
-        }}
-      );
-    }
-
-    // 3. Agent Performance
-    await apiFetch(
-      base + "/sites/" + site + "/lists/" + lists.agentPerformance + "/items",
-      "POST",
-      { fields: {
-        Title:      agentName,
-        Program:    program,
-        Date:       today,
-        Agent_Name: agentName,
-        Orders_MTD: 1,
-      }}
-    );
-
-    // 4. State Performance
-    if (lead.state) {
-      await apiFetch(
-        base + "/sites/" + site + "/lists/" + lists.statePerformance + "/items",
-        "POST",
-        { fields: {
-          Title:   lead.state,
-          Program: program,
-          Date:    today,
-          State:   lead.state,
-          Sales:   1,
-        }}
-      );
-    }
-
-    // 5. Operations Health
-    await apiFetch(
-      base + "/sites/" + site + "/lists/" + lists.operationsHealth + "/items",
-      "POST",
-      { fields: {
-        Title:      agentName,
-        Program:    program,
-        Date:       today,
-        Canceled_MTD: 0,
-      }}
-    );
-  }
-
-  // ============================================================
   //  BUSINESS RULES
   // ============================================================
 
@@ -340,7 +263,7 @@ const Graph = (() => {
       }
     }
 
-    return leads.map(lead => {
+    return leads.map(function(lead) {
       const flags = [];
 
       if (lead.lastContacted) {
@@ -348,10 +271,15 @@ const Graph = (() => {
         if (daysSince < coolOffDays && !Config.terminalStatuses.includes(lead.status)) {
           flags.push("cool_off");
         }
+        // 3rd Contact leads that have cooled off 48hrs+ need recycling
+        if (lead.status === "3rd Contact" && daysSince >= coolOffDays) {
+          flags.push("needs_recycle");
+        }
       }
 
+      // Also flag any lead inactive longer than recycleAfterDays
       const ref = lead.lastContacted || lead.createdAt;
-      if (ref && !Config.terminalStatuses.includes(lead.status)) {
+      if (ref && !Config.terminalStatuses.includes(lead.status) && lead.status !== "3rd Contact") {
         const daysSince = (now - new Date(ref)) / 86400000;
         if (daysSince > recycleAfterDays) flags.push("needs_recycle");
       }
@@ -369,6 +297,20 @@ const Graph = (() => {
       return l.assignedTo === agentName && !Config.terminalStatuses.includes(l.status);
     }).length;
     return count < Config.rules.maxLeadsPerAgent;
+  }
+
+  // Recycle a lead — record previous agent, unassign, reset to New
+  async function recycleLead(leadId, currentAgent) {
+    await resolveSiteIds();
+    const lead = State ? State.leads.find(function(l){ return l.id === leadId; }) : null;
+    const prev = lead ? (lead.previousAgents || "") : "";
+    const newPrev = prev ? prev + ", " + currentAgent : currentAgent;
+    await updateLead(leadId, {
+      Status:          "New",
+      Agent_x0020_Assigned: "",
+      PreviousAgents:  newPrev,
+      LastTouchedOn:   "",
+    });
   }
 
   function isInCoolOff(lead) {
@@ -402,12 +344,11 @@ const Graph = (() => {
   }
 
   return {
-    getLeads, addLead, updateLead, deleteLead, assignAgent,
+    getLeads, addLead, updateLead, deleteLead, assignAgent, recycleLead,
     getNextLeadForAgent,
     getContractors,
     getActivityLog, logActivity,
     getTodaySales, getDailyStats,
-    writeSaleToReportingLists,
     applyBusinessRules, canAgentTakeLead, isInCoolOff, agentContactsToday,
   };
 })();
