@@ -1069,7 +1069,10 @@ async function bulkAssignByQuantity() {
 
   const summary = plan.map(function(p){return p.qty + " → " + p.agent;}).join("\n");
   if (!confirm("Assign leads by quantity?\n\n" + summary + "\n\nTotal: " + totalRequested + " leads")) return;
-
+const { leads, contractors } = State;
+  const unassigned = leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
+  if (!unassigned.length) { UI.showToast("No unassigned leads.", "info"); return; }
+  if (!confirm("Auto-assign " + unassigned.length + " leads evenly across available agents?")) return;
   setLoading(true);
   try {
     let idx = 0;
@@ -1087,11 +1090,7 @@ async function bulkAssignByQuantity() {
     UI.showToast("Failed: " + err.message, "error");
   } finally { setLoading(false); }
 }
-  const { leads, contractors } = State;
-  const unassigned = leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
-  if (!unassigned.length) { UI.showToast("No unassigned leads.", "info"); return; }
-  if (!confirm("Auto-assign " + unassigned.length + " leads evenly across available agents?")) return;
-  setLoading(true);
+
   try {
     const slots = [];
     contractors.forEach(function(c) {
