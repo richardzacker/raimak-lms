@@ -64,10 +64,23 @@ const Auth = (() => {
         scopes:  Config.scopes,
         account: currentAccount,
       });
+
+      // Token came back but is empty — force re-consent
+      if (!result.accessToken || result.accessToken.trim() === "") {
+        await msalInstance.acquireTokenRedirect({
+          scopes: Config.scopes,
+          prompt: "consent", // forces the permissions consent screen
+        });
+        return null;
+      }
+
       return result.accessToken;
     } catch (err) {
       if (err instanceof msal.InteractionRequiredAuthError) {
-        await msalInstance.acquireTokenRedirect({ scopes: Config.scopes });
+        await msalInstance.acquireTokenRedirect({
+          scopes: Config.scopes,
+          prompt: "consent", // forces the permissions consent screen
+        });
         return null;
       }
       throw err;
