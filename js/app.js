@@ -1387,7 +1387,6 @@ function loadLeadInFeed(leadId) {
     feedWrap.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
-}
 
 // ============================================================
 //  DAILY REPORT
