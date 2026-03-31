@@ -925,7 +925,42 @@ function renderAssignLeads() {
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/><polyline points="12,8 12,12 14,14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Drip Feed Mode
         </button>
-        <button class="btn-primary" onclick="autoAssignLeads()">Auto-Assign All</button>
+        <button class="btn-primary" onclick="autoAssignLeads()">Auto-Assign Evenly</button>
+      </div>
+    </div>
+
+    <!-- Quantity-based bulk assign -->
+    <div class="card" style="margin-bottom:20px;border-color:#2563B0">
+      <div class="card-header" style="background:#EEF4FB">
+        <h2 class="card-title" style="color:#0D1B3E">Assign by Quantity</h2>
+        <span class="card-meta">Set how many leads each agent should receive</span>
+      </div>
+      <div style="padding:16px 20px">
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:16px">
+          ${contractors.map(function(c) {
+            const current = leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
+            return `
+              <div style="display:flex;align-items:center;gap:10px;padding:12px;background:#F4F7FD;border:1px solid #D0DCF0;border-radius:8px">
+                <div class="contractor-avatar" style="width:36px;height:36px;font-size:16px">${c.name[0].toUpperCase()}</div>
+                <div style="flex:1;min-width:0">
+                  <div style="font-family:var(--font-head);font-size:13px;font-weight:700;color:#0D1B3E;text-transform:uppercase">${escHtml(c.name)}</div>
+                  <div style="font-family:var(--font-mono);font-size:10px;color:#8EA5C8;margin-top:2px">${current} currently assigned</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px">
+                  <input type="number" id="qty-${escHtml(c.name)}" class="form-input" min="0" max="${unassigned.length}" placeholder="0"
+                    style="width:70px;text-align:center;padding:6px 8px;font-size:14px;font-weight:600">
+                  <span style="font-family:var(--font-mono);font-size:10px;color:#8EA5C8">leads</span>
+                </div>
+              </div>`;
+          }).join("")}
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+          <button class="btn-primary" onclick="bulkAssignByQuantity()">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Assign by Quantity
+          </button>
+          <span id="qty-preview" style="font-family:var(--font-mono);font-size:12px;color:#6B85B0"></span>
+        </div>
       </div>
     </div>
 
@@ -939,7 +974,7 @@ function renderAssignLeads() {
             <div class="assign-agent-info">
               <span class="contractor-name">${escHtml(c.name)}</span>
               <div class="load-bar-wrap"><div class="load-bar ${pct>=100?"load-full":pct>=80?"load-high":""}" style="width:${pct}%"></div></div>
-              <span class="assign-count ${count>=max?"text-danger":""}">${count}/${max}${count>=max?" — FULL":""}</span>
+              <span class="assign-count ${count>=max?"text-danger":""}">${count} assigned</span>
             </div>
           </div>`;
       }).join("")}
@@ -963,8 +998,7 @@ function renderAssignLeads() {
                       <option value="">Select agent</option>
                       ${contractors.map(function(c) {
                         const cnt  = leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
-                        const full = cnt >= max;
-                        return `<option value="${escHtml(c.name)}" ${full?"disabled":""}>${escHtml(c.name)} (${cnt}/${max}${full?" FULL":""})</option>`;
+                        return `<option value="${escHtml(c.name)}">${escHtml(c.name)} (${cnt} assigned)</option>`;
                       }).join("")}
                     </select>
                     <button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="assignLead('${lead.id}')">Assign</button>
@@ -977,6 +1011,23 @@ function renderAssignLeads() {
       </div>
     </div>
   `;
+
+  // Live preview of total as quantities are typed
+  State.contractors.forEach(function(c) {
+    const input = document.getElementById("qty-" + c.name);
+    if (input) {
+      input.addEventListener("input", function() {
+        const total = State.contractors.reduce(function(sum, agent) {
+          const val = parseInt((document.getElementById("qty-" + agent.name)||{}).value||"0") || 0;
+          return sum + val;
+        }, 0);
+        const preview = document.getElementById("qty-preview");
+        const unassignedCount = State.leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); }).length;
+        if (preview) preview.textContent = total + " of " + unassignedCount + " unassigned leads allocated";
+        if (preview) preview.style.color = total > unassignedCount ? "#FF4444" : "#2563B0";
+      });
+    }
+  });
 }
 
 async function assignLead(leadId) {
@@ -997,7 +1048,45 @@ async function assignLead(leadId) {
   } finally { setLoading(false); }
 }
 
-async function autoAssignLeads() {
+async function bulkAssignByQuantity() {
+  const { leads, contractors } = State;
+  const unassigned = leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
+
+  // Build assignment plan from qty inputs
+  const plan = [];
+  contractors.forEach(function(c) {
+    const qty = parseInt((document.getElementById("qty-" + c.name)||{}).value||"0") || 0;
+    if (qty > 0) plan.push({ agent: c.name, qty: qty });
+  });
+
+  if (!plan.length) { UI.showToast("Please enter a quantity for at least one agent.", "error"); return; }
+
+  const totalRequested = plan.reduce(function(s,p){return s+p.qty;},0);
+  if (totalRequested > unassigned.length) {
+    UI.showToast("Total (" + totalRequested + ") exceeds unassigned leads (" + unassigned.length + "). Reduce quantities.", "error");
+    return;
+  }
+
+  const summary = plan.map(function(p){return p.qty + " → " + p.agent;}).join("\n");
+  if (!confirm("Assign leads by quantity?\n\n" + summary + "\n\nTotal: " + totalRequested + " leads")) return;
+
+  setLoading(true);
+  try {
+    let idx = 0;
+    for (var p = 0; p < plan.length; p++) {
+      for (var q = 0; q < plan[p].qty; q++) {
+        if (idx >= unassigned.length) break;
+        await Graph.assignAgent(unassigned[idx].id, plan[p].agent);
+        idx++;
+      }
+    }
+    UI.showToast("Assigned " + totalRequested + " leads successfully!", "success");
+    await loadAllData();
+    renderAssignLeads();
+  } catch (err) {
+    UI.showToast("Failed: " + err.message, "error");
+  } finally { setLoading(false); }
+}
   const { leads, contractors } = State;
   const unassigned = leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
   if (!unassigned.length) { UI.showToast("No unassigned leads.", "info"); return; }
