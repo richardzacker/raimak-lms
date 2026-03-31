@@ -39,26 +39,27 @@ const Auth = (() => {
   }
 
   // ── Get Access Token ───────────────────────────────────────
-  async function getToken() {
-    const accounts = msalInstance.getAllAccounts();
-    if (!accounts.length) return null;
+ async function getToken() {
+  const accounts = msalInstance.getAllAccounts();
+  if (!accounts.length) return null;
 
-    currentAccount = accounts[0];
+  currentAccount = accounts[0];
 
-    try {
-      const result = await msalInstance.acquireTokenSilent({
-        scopes:  Config.scopes,
-        account: currentAccount,
-      });
-      return result.accessToken;
-    } catch (err) {
-      if (err instanceof msal.InteractionRequiredAuthError) {
-        await msalInstance.acquireTokenRedirect({ scopes: Config.scopes });
-      }
-      throw err;
+  try {
+    const result = await msalInstance.acquireTokenSilent({
+      scopes:  Config.scopes,
+      account: currentAccount,
+    });
+    return result.accessToken;
+  } catch (err) {
+    if (err instanceof msal.InteractionRequiredAuthError) {
+      // Don't throw after redirect — just redirect and let the page reload handle it
+      await msalInstance.acquireTokenRedirect({ scopes: Config.scopes });
+      return null; // ← this line replaces "throw err"
     }
+    throw err;
   }
-
+}
   // ── Current User ───────────────────────────────────────────
   function getUser() {
     const accounts = msalInstance?.getAllAccounts();
