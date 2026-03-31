@@ -301,17 +301,17 @@ const Graph = (() => {
 
   // Recycle a lead — record previous agent, unassign, reset to New
   async function recycleLead(leadId, currentAgent) {
-    await resolveSiteIds();
-    const lead = State ? State.leads.find(function(l){ return l.id === leadId; }) : null;
-    const prev = lead ? (lead.previousAgents || "") : "";
-    const newPrev = prev ? prev + ", " + currentAgent : currentAgent;
-    await updateLead(leadId, {
-      Status:          "New",
-      Agent_x0020_Assigned: "",
-      PreviousAgents:  newPrev,
-      LastTouchedOn:   "",
-    });
-  }
+  await resolveSiteIds();
+  const lead = State ? State.leads.find(function(l){ return l.id === leadId; }) : null;
+  const prev = lead ? (lead.previousAgents || "") : "";
+  const newPrev = prev ? prev + ", " + currentAgent : currentAgent;
+  await updateLead(leadId, {
+    Status:               "New",
+    Agent_x0020_Assigned: null,
+    PreviousAgents:       newPrev,
+    LastTouchedOn:        null,
+  });
+}
 
   function isInCoolOff(lead) {
     if (!lead.lastContacted) return false;
