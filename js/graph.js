@@ -211,16 +211,27 @@ const Graph = (() => {
     await apiFetch(url, "POST", { fields: entry });
   }
 
-  // Get today's sold leads for live feed
+  // Get today's sold leads based on activity log entries.
+  // Uses activity log instead of lastModifiedDateTime to prevent
+  // count inflation from leads being touched for other reasons.
   async function getTodaySales() {
     await resolveSiteIds();
-    const url = base + "/sites/" + siteIds.team + "/lists/" + lists.leadsList + "/items?expand=fields&$top=500";
-    const raw = await getAllItems(url);
+    const log   = await getActivityLog(500);
     const today = new Date().toDateString();
-    return raw.map(normalizeLeadItem).filter(l => {
-      if (l.status !== Config.soldStatus) return false;
-      const mod = l.modified ? new Date(l.modified).toDateString() : null;
-      return mod === today;
+
+    // Get unique lead IDs that were explicitly marked Sold today
+    const soldTodayIds = new Set();
+    log.forEach(function(e) {
+      if (e.action === "Status: " + Config.soldStatus &&
+          e.timestamp &&
+          new Date(e.timestamp).toDateString() === today) {
+        soldTodayIds.add(e.leadId);
+      }
+    });
+
+    // Return the actual lead objects for those IDs
+    return (State.leads || []).filter(function(l) {
+      return soldTodayIds.has(l.id);
     });
   }
 
