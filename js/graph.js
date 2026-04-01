@@ -215,10 +215,13 @@ const Graph = (() => {
   // Uses activity log instead of lastModifiedDateTime to prevent
   // count inflation from leads being touched for other reasons.
   async function getTodaySales() {
-    await resolveSiteIds();
-    const log   = await getActivityLog(500);
-    const today = new Date().toDateString();
-
+  await resolveSiteIds();
+  const [log, rawLeads] = await Promise.all([
+    getActivityLog(500),
+    getLeads(),
+  ]);
+  const today = new Date().toDateString();
+    
     // Get unique lead IDs that were explicitly marked Sold today
     const soldTodayIds = new Set();
     log.forEach(function(e) {
@@ -229,12 +232,12 @@ const Graph = (() => {
       }
     });
 
-    // Return the actual lead objects for those IDs
-    return (State.leads || []).filter(function(l) {
-      return soldTodayIds.has(l.id);
-    });
-  }
-
+      // Return matching leads
+  return rawLeads.filter(function(l) {
+    return soldTodayIds.has(l.id);
+  });
+}
+ 
   // Get daily activity stats per agent for the report.
   // Maps agent emails back to display names via the contractors list.
   async function getDailyStats() {
