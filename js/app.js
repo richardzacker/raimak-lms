@@ -396,7 +396,6 @@ async function recycleAllLeads() {
   } finally { setLoading(false); }
 }
 
-function startSalesFeedPolling() {
   function startSalesFeedPolling() {
   if (State.salesFeedTimer) clearInterval(State.salesFeedTimer);
 
