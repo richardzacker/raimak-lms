@@ -102,6 +102,19 @@ function showAppShell() {
     <a class="nav-item" data-view="report" onclick="navigate('report')">
       <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="2"/><polyline points="14,2 14,8 20,8" stroke="currentColor" stroke-width="2"/><line x1="16" y1="13" x2="8" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="17" x2="8" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
       Daily Report
+    </a>
+    <a class="nav-item" data-view="leads" onclick="navigate('leads')">
+      <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>
+      Leads
+      <span class="badge" id="badge-leads"></span>
+    </a>
+    <a class="nav-item" data-view="contractors" onclick="navigate('contractors')">
+      <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" stroke="currentColor" stroke-width="2"/></svg>
+      Raimak Team
+    </a>
+    <a class="nav-item" data-view="activity" onclick="navigate('activity')">
+      <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      Activity Log
     </a>` : "";
 
   const agentNav = `
@@ -121,19 +134,6 @@ function showAppShell() {
           </a>
           ${agentNav}
           ${adminNav}
-          <a class="nav-item" data-view="leads" onclick="navigate('leads')">
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="9" cy="7" r="4" stroke="currentColor" stroke-width="2"/></svg>
-            Leads
-            <span class="badge" id="badge-leads"></span>
-          </a>
-          <a class="nav-item" data-view="contractors" onclick="navigate('contractors')">
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><rect x="2" y="7" width="20" height="14" rx="2" stroke="currentColor" stroke-width="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" stroke="currentColor" stroke-width="2"/></svg>
-            Contractors
-          </a>
-          <a class="nav-item" data-view="activity" onclick="navigate('activity')">
-            <svg width="18" height="18" fill="none" viewBox="0 0 24 24"><polyline points="22,12 18,12 15,21 9,3 6,12 2,12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Activity Log
-          </a>
         </nav>
         <div class="sidebar-footer">
           <div class="user-info">
@@ -163,6 +163,12 @@ function showAppShell() {
 //  NAVIGATION
 // ============================================================
 function navigate(view) {
+  // Guard admin-only views — redirect agents to myleads
+  const adminOnly = ["leads", "drip", "assign", "report", "contractors", "activity"];
+  if (!isAdmin() && adminOnly.includes(view)) {
+    view = "myleads";
+  }
+
   State.currentView = view;
   document.querySelectorAll(".nav-item").forEach(function(el) { el.classList.remove("active"); });
   const navEl = document.querySelector("[data-view='" + view + "']");
@@ -227,11 +233,12 @@ function renderDashboard() {
         <span class="kpi-value">${todaySales.length}</span>
         <span class="kpi-sub">${total ? Math.round((sold/total)*100) : 0}% all-time close rate</span>
       </div>
-      <div class="kpi-card ${needRecycle > 0 ? "kpi-warn" : "kpi-neutral"}" ${isAdmin() && needRecycle > 0 ? 'style="cursor:pointer" onclick="document.querySelector(\'[style*=recycle]\')?.scrollIntoView({behavior:\'smooth\'})"' : ""}>
+      ${isAdmin() ? `
+      <div class="kpi-card ${needRecycle > 0 ? "kpi-warn" : "kpi-neutral"}" ${needRecycle > 0 ? 'style="cursor:pointer" onclick="document.querySelector(\'[data-recycle-queue]\')?.scrollIntoView({behavior:\'smooth\'})"' : ""}>
         <span class="kpi-label">Needs Recycle</span>
         <span class="kpi-value">${needRecycle}</span>
         <span class="kpi-sub">${needRecycle > 0 ? "↓ See recycle queue below" : "All leads current"}</span>
-      </div>
+      </div>` : ""}
       <div class="kpi-card ${coolOff > 0 ? "kpi-info" : "kpi-neutral"}">
         <span class="kpi-label">In Cool-Off</span>
         <span class="kpi-value">${coolOff}</span>
@@ -290,18 +297,23 @@ function renderDashboard() {
     <div class="card">
       <div class="card-header">
         <h2 class="card-title">Recent Leads</h2>
-        <button class="btn-ghost-sm" onclick="navigate('leads')">View all</button>
+        ${isAdmin() ? `<button class="btn-ghost-sm" onclick="navigate('leads')">View all</button>` : ""}
       </div>
       ${renderLeadsTable(recentLeads, true)}
     </div>
 
     ${isAdmin() && needRecycle > 0 ? `
-    <div class="card" style="border-color:#FFB300;box-shadow:0 0 20px rgba(255,179,0,0.1)">
+    <div class="card" data-recycle-queue style="border-color:#FFB300;box-shadow:0 0 20px rgba(255,179,0,0.1)">
       <div class="card-header" style="background:#FFF8E1">
         <h2 class="card-title" style="color:#8B6914">
           ⚠️ Recycle Queue — ${needRecycle} lead${needRecycle!==1?"s":""} ready
         </h2>
-        <span class="card-meta" style="color:#8B6914">3rd Contact · 48hrs+ since last contact</span>
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="card-meta" style="color:#8B6914">3rd Contact · 48hrs+ since last contact</span>
+          <button class="btn-primary" style="padding:6px 16px;font-size:12px;background:#FFB300;border-color:#FFB300;color:#1A2640" onclick="recycleAllLeads()">
+            ♻️ Recycle All
+          </button>
+        </div>
       </div>
       <div class="table-wrap">
         <table class="data-table">
@@ -359,6 +371,31 @@ async function recycleLeadAction(leadId, currentAgent, leadName) {
   } finally { setLoading(false); }
 }
 
+async function recycleAllLeads() {
+  const recycleLeads = State.leads.filter(function(l) { return l.flags && l.flags.includes("needs_recycle"); });
+  if (!recycleLeads.length) { UI.showToast("No leads to recycle.", "info"); return; }
+  if (!confirm("Recycle ALL " + recycleLeads.length + " lead" + (recycleLeads.length !== 1 ? "s" : "") + " in the queue?\n\nThis will:\n• Reset all their statuses to New\n• Unassign them from their current agents\n• Record previous assignment history\n\nThis cannot be undone.")) return;
+  setLoading(true);
+  try {
+    for (var i = 0; i < recycleLeads.length; i++) {
+      const lead = recycleLeads[i];
+      await Graph.recycleLead(lead.id, lead.assignedTo || "");
+      await Graph.logActivity({
+        LeadID:     lead.id,
+        Title:      lead.name,
+        ActionType: "Recycled",
+        AgentEmail: (State.currentUser && State.currentUser.email) || "",
+        Notes:      "Bulk recycled by admin — previous agent: " + (lead.assignedTo || "unknown"),
+      });
+    }
+    UI.showToast("Recycled " + recycleLeads.length + " lead" + (recycleLeads.length !== 1 ? "s" : "") + " successfully!", "success");
+    await loadAllData();
+    renderDashboard();
+  } catch (err) {
+    UI.showToast("Failed: " + err.message, "error");
+  } finally { setLoading(false); }
+}
+
 function startSalesFeedPolling() {
   if (State.salesFeedTimer) clearInterval(State.salesFeedTimer);
   _lastSaleCount = State.todaySales ? State.todaySales.length : 0;
@@ -367,7 +404,6 @@ function startSalesFeedPolling() {
     try {
       const newSales = await Graph.getTodaySales();
 
-      // Detect new sales since last poll — show banner for ALL users
       if (newSales.length > _lastSaleCount) {
         const latest = newSales[newSales.length - 1];
         UI.showSaleBanner(
@@ -376,11 +412,9 @@ function startSalesFeedPolling() {
         );
         UI.showConfetti();
       }
-      _lastSaleCount = newSales.length;
-
+      _lastSaleCount   = newSales.length;
       State.todaySales = newSales;
 
-      // Update dashboard feed if visible
       if (State.currentView === "dashboard") {
         const feed = document.getElementById("sales-feed");
         const time = document.getElementById("sales-feed-time");
@@ -403,9 +437,11 @@ function startSalesFeedPolling() {
 }
 
 // ============================================================
-//  ADMIN — DRIP FEED (assign one lead at a time)
+//  ADMIN — DRIP FEED
 // ============================================================
 function renderDripFeed() {
+  if (!isAdmin()) { navigate("myleads"); return; }
+
   const unassigned = State.leads.filter(function(l) {
     return !l.assignedTo && !Config.terminalStatuses.includes(l.status);
   });
@@ -414,8 +450,8 @@ function renderDripFeed() {
     State.dripLead = unassigned[0];
   }
 
-  const lead       = State.dripLead;
-  const remaining  = unassigned.length;
+  const lead      = State.dripLead;
+  const remaining = unassigned.length;
 
   document.getElementById("main-content").innerHTML = `
     <div class="view-header">
@@ -450,12 +486,10 @@ function renderDripFeed() {
         <div class="drip-meta">
           ${lead.phone ? `<span class="feed-meta"><svg width="13" height="13" fill="none" viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.38 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.96a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16.92z" stroke="currentColor" stroke-width="2"/></svg>${escHtml(lead.phone)}</span>` : ""}
           ${lead.email ? `<span class="feed-meta"><svg width="13" height="13" fill="none" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" stroke="currentColor" stroke-width="2"/><polyline points="22,6 12,13 2,6" stroke="currentColor" stroke-width="2"/></svg>${escHtml(lead.email)}</span>` : ""}
-          
           ${lead.currentMRC ? `<span class="feed-meta">MRC: $${escHtml(lead.currentMRC)}/mo</span>` : ""}
           ${lead.currentProducts ? `<span class="feed-meta">Has: ${escHtml(lead.currentProducts)}</span>` : ""}
         </div>
         ${lead.notes ? `<div class="feed-notes">${escHtml(lead.notes)}</div>` : ""}
-
         <div style="margin-top:8px">
           <span class="feed-label">Assign To Agent</span>
           <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
@@ -475,11 +509,8 @@ function renderDripFeed() {
           </div>
         </div>
       </div>
-
       <div class="card">
-        <div class="card-header">
-          <h2 class="card-title">Remaining Unassigned (${remaining})</h2>
-        </div>
+        <div class="card-header"><h2 class="card-title">Remaining Unassigned (${remaining})</h2></div>
         ${renderLeadsTable(unassigned.slice(0,10), true)}
       </div>
     `}
@@ -490,34 +521,29 @@ async function confirmDripAssign(leadId) {
   const select = document.getElementById("drip-agent-select");
   const agent  = select && select.value;
   if (!agent) { UI.showToast("Please select an agent first.", "error"); return; }
-
   if (!Graph.canAgentTakeLead(agent, State.leads)) {
     UI.showToast(agent + " is at the " + Config.rules.maxLeadsPerAgent + "-lead limit.", "error");
     return;
   }
-
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   setLoading(true);
   try {
     await Graph.assignAgent(leadId, agent);
     await Graph.logActivity({
-      LeadID: leadId,
-      Title: lead ? lead.name : "",
+      LeadID:     leadId,
+      Title:      lead ? lead.name : "",
       ActionType: "Drip Assigned",
       AgentEmail: agent,
-      Notes:    "Drip-assigned by " + ((State.currentUser && State.currentUser.name) || "Admin"),
+      Notes:      "Drip-assigned by " + ((State.currentUser && State.currentUser.name) || "Admin"),
     });
     UI.showToast(lead.name + " assigned to " + agent, "success");
     await loadAllData();
-    // Move to next unassigned lead
     const remaining = State.leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
     State.dripLead = remaining.length ? remaining[0] : null;
     renderDripFeed();
   } catch (err) {
     UI.showToast("Failed: " + err.message, "error");
-  } finally {
-    setLoading(false);
-  }
+  } finally { setLoading(false); }
 }
 
 function skipDripLead() {
@@ -531,7 +557,6 @@ function skipDripLead() {
 // ============================================================
 //  AGENT — MY LEADS
 // ============================================================
-// ── Status color helper ──────────────────────────────────────
 function getStatusColor(status) {
   const colors = Config.statusColors || {};
   if ((colors.red    || []).includes(status)) return "#FF4444";
@@ -548,7 +573,6 @@ function getStatusDot(status) {
   return `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${color};box-shadow:0 0 6px ${color};flex-shrink:0;margin-right:6px"></span>`;
 }
 
-// Track whether current lead has been saved
 let _leadSaved = false;
 let _currentFeedIndex = 0;
 
@@ -572,8 +596,6 @@ function renderMyLeads() {
     ) && !Config.terminalStatuses.includes(l.status);
   });
 
-  // Include ALL assigned leads in search — including cool-off
-  // Cool-off leads are excluded from the auto feed but accessible via search
   const allMyLeads = State.leads.filter(function(l) {
     const assigned = (l.assignedTo || "").toLowerCase().replace(/\s+/g, " ").trim();
     return assigned && (
@@ -582,13 +604,13 @@ function renderMyLeads() {
       assigned === userEmail.replace(/\s+/g, " ")
     ) && !Config.terminalStatuses.includes(l.status);
   });
-  window._myLeads = allMyLeads;
-  window._agentName    = agentName;
-  _leadSaved           = false;
+  window._myLeads   = allMyLeads;
+  window._agentName = agentName;
+  _leadSaved        = false;
 
-  // Clamp index
   if (_currentFeedIndex >= myLeads.length) _currentFeedIndex = 0;
 
+  // KEY FIX: pass email instead of name for accurate contact counting
   const contactsToday = Graph.agentContactsToday((user && user.email) || "", State.activityLog);
   const atLimit       = contactsToday >= Config.rules.maxContactsPerDay;
 
@@ -611,7 +633,6 @@ function renderMyLeads() {
 
     <div id="lead-feed-wrap">${renderLeadFeedCard(myLeads, contactsToday)}</div>
 
-    <!-- Search — only visible after save -->
     <div id="lead-search-section" style="display:${isAdmin() ? 'block' : 'none'};margin-top:20px">
       <div class="card">
         <div class="card-header">
@@ -644,7 +665,6 @@ function searchMyLeads(q) {
   if (!q.trim()) { wrap.innerHTML = ""; return; }
   wrap.innerHTML = filtered.length ? renderLeadsTable(filtered, false, true) : `<div class="empty-state">No leads found for "${escHtml(q)}"</div>`;
 
-  // If exactly one result found, load it in the feed card regardless of cool-off
   if (filtered.length === 1) {
     const feedWrap = document.getElementById("lead-feed-wrap");
     if (feedWrap) {
@@ -654,7 +674,6 @@ function searchMyLeads(q) {
   }
 }
 
-// Staged status — stored here until Save is clicked
 let _stagedStatus = null;
 
 function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
@@ -688,7 +707,6 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
 
       ${lead.notes ? `<div class="feed-notes">${escHtml(lead.notes)}</div>` : ""}
 
-      <!-- Customer info boxes — BTN, Package, Price, CBR -->
       <div class="feed-customer-info">
         <div class="form-group">
           <label>BTN</label>
@@ -711,7 +729,6 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
         </div>
       </div>
 
-      <!-- AutoPay -->
       <div style="margin-bottom:16px">
         <div style="font-family:var(--font-mono);font-size:10px;color:#6B85B0;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">
           AutoPay <span style="color:var(--red)">* Required</span>
@@ -725,13 +742,12 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
         </div>
       </div>
 
-      <!-- Status buttons -->
       <div class="feed-status-row">
         <span class="feed-label">Select Status — click Save to confirm</span>
         <div class="feed-status-buttons" id="feed-status-buttons">
           ${Config.leadStatuses.filter(function(s) { return s !== "New"; }).map(function(s) {
-            const cls     = "status-btn-" + s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
-            const isTDM   = s === "TDM";
+            const cls      = "status-btn-" + s.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"");
+            const isTDM    = s === "TDM";
             const disabled = atLimit && !Config.terminalStatuses.includes(s);
             return `<button class="status-btn ${cls}" id="sbtn-${s.replace(/\s+/g,"-")}"
               onclick="stageStatus('${lead.id}','${s}')"
@@ -743,7 +759,6 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
 
       <div id="feed-staged-notice" style="display:none;margin-top:6px;font-family:var(--font-mono);font-size:11px;color:var(--amber)"></div>
 
-      <!-- Notes history + today's note -->
       <div style="margin-top:16px">
         <span class="feed-label">Notes</span>
         ${lead.notes ? `<div style="background:#F4F7FD;border:1px solid #D0DCF0;border-radius:6px;padding:10px 14px;margin-top:6px;margin-bottom:8px;max-height:140px;overflow-y:auto">
@@ -773,7 +788,6 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
         </div>
       </div>
 
-      <!-- Next button — only shows after save -->
       <div id="feed-next-row" style="display:none;margin-top:12px">
         <button class="btn-cyan" style="width:100%;justify-content:center;font-size:16px;padding:14px" onclick="advanceToNextLead()">
           Next Lead →
@@ -782,19 +796,16 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
     </div>`;
 }
 
-// Stage a status selection — highlight the button, don't save yet
 function stageStatus(leadId, newStatus) {
   const lead = State.leads.find(function(l) { return l.id === leadId; });
   if (!lead) return;
 
-  // Cool-off — warn but don't block. Agent may have received a callback.
   if (Graph.isInCoolOff(lead) && !Config.terminalStatuses.includes(newStatus)) {
     UI.showToast("Note: this lead is in the " + Config.rules.coolOffDays + "-day cool-off period.", "info");
   }
 
   _stagedStatus = newStatus;
 
-  // Highlight selected button, clear others
   document.querySelectorAll(".status-btn").forEach(function(btn) {
     btn.style.borderColor = "";
     btn.style.color       = "";
@@ -809,22 +820,19 @@ function stageStatus(leadId, newStatus) {
     selectedBtn.style.boxShadow   = "0 0 12px var(--cyan-glow)";
   }
 
-  // Show staged notice
   const notice = document.getElementById("feed-staged-notice");
   if (notice) {
     notice.style.display = "block";
     notice.textContent   = "⚡ \"" + newStatus + "\" staged — click Save to confirm";
   }
 
-  // Update the current status badge preview
   const badge = document.getElementById("feed-current-status");
   if (badge) {
-    badge.textContent  = newStatus + " (staged)";
+    badge.textContent   = newStatus + " (staged)";
     badge.style.opacity = "0.7";
   }
 }
 
-// Save everything — status + all fields — in one shot
 async function agentSaveAll(leadId) {
   const user = State.currentUser;
   const lead = State.leads.find(function(l) { return l.id === leadId; });
@@ -839,10 +847,8 @@ async function agentSaveAll(leadId) {
   const autoPayEl  = document.querySelector('input[name="feed-autopay"]:checked');
   const autoPay    = autoPayEl ? autoPayEl.value : "";
 
-  // Require AutoPay selection
   if (!autoPay) { UI.showToast("Please select an AutoPay option before saving.", "error"); setLoading(false); return; }
 
-  // Date-stamp the new note with agent name and prepend to existing notes
   let notes = lead.notes || "";
   if (newNote.trim()) {
     const today     = new Date();
@@ -864,7 +870,6 @@ async function agentSaveAll(leadId) {
     if (autoPay)  saveFields["AutoPay"] = autoPay;
     await Graph.updateLead(leadId, saveFields);
 
-    // TDM — unassign and flag for admin
     if (newStatus === "TDM") {
       await Graph.assignAgent(leadId, "");
       UI.showToast("TDM — lead returned to admin queue.", "info");
@@ -889,10 +894,9 @@ async function agentSaveAll(leadId) {
     _leadSaved    = true;
     await loadAllData();
 
-    // Show Next button and search — don't auto-advance
-    const nextRow     = document.getElementById("feed-next-row");
-    const searchSec   = document.getElementById("lead-search-section");
-    const saveBtn     = document.getElementById("feed-save-btn");
+    const nextRow   = document.getElementById("feed-next-row");
+    const searchSec = document.getElementById("lead-search-section");
+    const saveBtn   = document.getElementById("feed-save-btn");
     if (nextRow)   { nextRow.style.display   = "block"; }
     if (searchSec) { searchSec.style.display = "block"; }
     if (saveBtn)   { saveBtn.textContent = "Saved ✓"; saveBtn.disabled = true; saveBtn.style.background = "var(--green)"; }
@@ -901,7 +905,6 @@ async function agentSaveAll(leadId) {
   } finally { setLoading(false); }
 }
 
-
 function advanceToNextLead() {
   _currentFeedIndex++;
   _leadSaved = false;
@@ -909,7 +912,11 @@ function advanceToNextLead() {
 }
 
 // ============================================================
+//  ASSIGN LEADS (Admin only)
+// ============================================================
 function renderAssignLeads() {
+  if (!isAdmin()) { navigate("myleads"); return; }
+
   const { leads, contractors } = State;
   const unassigned = leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
   const max        = Config.rules.maxLeadsPerAgent;
@@ -929,7 +936,6 @@ function renderAssignLeads() {
       </div>
     </div>
 
-    <!-- Quantity-based bulk assign -->
     <div class="card" style="margin-bottom:20px;border-color:#2563B0">
       <div class="card-header" style="background:#EEF4FB">
         <h2 class="card-title" style="color:#0D1B3E">Assign by Quantity</h2>
@@ -997,7 +1003,7 @@ function renderAssignLeads() {
                     <select class="filter-select assign-select" id="assign-${lead.id}">
                       <option value="">Select agent</option>
                       ${contractors.map(function(c) {
-                        const cnt  = leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
+                        const cnt = leads.filter(function(l) { return l.assignedTo === c.name && !Config.terminalStatuses.includes(l.status); }).length;
                         return `<option value="${escHtml(c.name)}">${escHtml(c.name)} (${cnt} assigned)</option>`;
                       }).join("")}
                     </select>
@@ -1012,7 +1018,6 @@ function renderAssignLeads() {
     </div>
   `;
 
-  // Live preview of total as quantities are typed
   State.contractors.forEach(function(c) {
     const input = document.getElementById("qty-" + c.name);
     if (input) {
@@ -1021,7 +1026,7 @@ function renderAssignLeads() {
           const val = parseInt((document.getElementById("qty-" + agent.name)||{}).value||"0") || 0;
           return sum + val;
         }, 0);
-        const preview = document.getElementById("qty-preview");
+        const preview         = document.getElementById("qty-preview");
         const unassignedCount = State.leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); }).length;
         if (preview) preview.textContent = total + " of " + unassignedCount + " unassigned leads allocated";
         if (preview) preview.style.color = total > unassignedCount ? "#FF4444" : "#2563B0";
@@ -1052,7 +1057,6 @@ async function bulkAssignByQuantity() {
   const { leads, contractors } = State;
   const unassigned = leads.filter(function(l) { return !l.assignedTo && !Config.terminalStatuses.includes(l.status); });
 
-  // Build assignment plan from qty inputs
   const plan = [];
   contractors.forEach(function(c) {
     const qty = parseInt((document.getElementById("qty-" + c.name)||{}).value||"0") || 0;
@@ -1069,8 +1073,7 @@ async function bulkAssignByQuantity() {
 
   const summary = plan.map(function(p){return p.qty + " → " + p.agent;}).join("\n");
   if (!confirm("Assign leads by quantity?\n\n" + summary + "\n\nTotal: " + totalRequested + " leads")) return;
-  if (!unassigned.length) { UI.showToast("No unassigned leads.", "info"); return; }
-  if (!confirm("Auto-assign " + unassigned.length + " leads evenly across available agents?")) return;
+
   setLoading(true);
   try {
     let idx = 0;
@@ -1089,11 +1092,12 @@ async function bulkAssignByQuantity() {
   } finally { setLoading(false); }
 }
 
-
 // ============================================================
-//  LEADS VIEW
+//  LEADS VIEW (Admin only)
 // ============================================================
 function renderLeads() {
+  if (!isAdmin()) { navigate("myleads"); return; }
+
   State.selectedLeads.clear();
   const contractors = State.contractors.map(function(c) { return c.name; });
   document.getElementById("main-content").innerHTML = `
@@ -1111,20 +1115,17 @@ function renderLeads() {
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="7,10 12,15 17,10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Export CSV
         </button>
-        ${isAdmin() ? `
         <button class="btn-ghost btn-danger-ghost" onclick="confirmClearAll()" title="Delete all leads — fresh start">
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Clear All
         </button>
-        <button class="btn-primary" onclick="openAddLeadModal()">+ Add Lead</button>` : ""}
+        <button class="btn-primary" onclick="openAddLeadModal()">+ Add Lead</button>
       </div>
     </div>
 
-    <!-- Bulk Action Bar (hidden until selection) -->
     <div class="bulk-bar" id="bulk-bar" style="display:none">
       <span class="bulk-count" id="bulk-count">0 selected</span>
       <div class="bulk-actions">
-        ${isAdmin() ? `
         <select class="filter-select bulk-assign-select" id="bulk-assign-select" style="min-width:180px;font-size:12px;padding:6px 10px">
           <option value="">Assign to agent...</option>
           ${contractors.map(function(c) { return `<option value="${escHtml(c)}">${escHtml(c)}</option>`; }).join("")}
@@ -1139,8 +1140,7 @@ function renderLeads() {
         <button class="bulk-btn bulk-delete-btn" onclick="bulkDelete()">
           <svg width="13" height="13" fill="none" viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Delete Selected
-        </button>` : `
-        <button class="btn-ghost bulk-btn" onclick="bulkExportSelected()">Export Selected</button>`}
+        </button>
         <button class="btn-ghost bulk-btn" onclick="clearSelection()">Clear Selection</button>
       </div>
     </div>
@@ -1163,7 +1163,6 @@ function renderLeads() {
   `;
 }
 
-// ── Multi-select helpers ─────────────────────────────────────
 function toggleLeadSelect(id, checked) {
   if (checked) { State.selectedLeads.add(id); }
   else         { State.selectedLeads.delete(id); }
@@ -1187,10 +1186,8 @@ function updateBulkBar() {
   if (!bar) return;
   bar.style.display = n > 0 ? "flex" : "none";
   if (count) count.textContent = n + " lead" + (n !== 1 ? "s" : "") + " selected";
-
-  // Update select-all checkbox state
-  const allCbs  = document.querySelectorAll(".lead-checkbox");
-  const selAll  = document.getElementById("select-all-cb");
+  const allCbs = document.querySelectorAll(".lead-checkbox");
+  const selAll = document.getElementById("select-all-cb");
   if (selAll && allCbs.length) {
     selAll.indeterminate = n > 0 && n < allCbs.length;
     selAll.checked       = n === allCbs.length;
@@ -1205,16 +1202,13 @@ function clearSelection() {
   updateBulkBar();
 }
 
-// ── Bulk Actions ─────────────────────────────────────────────
 async function bulkDelete() {
   const ids = Array.from(State.selectedLeads);
   if (!ids.length) return;
   if (!confirm("Permanently delete " + ids.length + " lead" + (ids.length !== 1 ? "s" : "") + "? This cannot be undone.")) return;
   setLoading(true);
   try {
-    for (var i = 0; i < ids.length; i++) {
-      await Graph.deleteLead(ids[i]);
-    }
+    for (var i = 0; i < ids.length; i++) { await Graph.deleteLead(ids[i]); }
     UI.showToast("Deleted " + ids.length + " lead" + (ids.length !== 1 ? "s" : ""), "success");
     State.selectedLeads.clear();
     await loadAllData();
@@ -1232,9 +1226,7 @@ async function bulkAssign() {
   if (!confirm("Assign " + ids.length + " lead" + (ids.length !== 1 ? "s" : "") + " to " + agent + "?")) return;
   setLoading(true);
   try {
-    for (var i = 0; i < ids.length; i++) {
-      await Graph.assignAgent(ids[i], agent);
-    }
+    for (var i = 0; i < ids.length; i++) { await Graph.assignAgent(ids[i], agent); }
     UI.showToast("Assigned " + ids.length + " leads to " + agent, "success");
     State.selectedLeads.clear();
     await loadAllData();
@@ -1252,9 +1244,7 @@ async function bulkAssignType() {
   if (!confirm("Set type to \"" + type + "\" for " + ids.length + " lead" + (ids.length !== 1 ? "s" : "") + "?")) return;
   setLoading(true);
   try {
-    for (var i = 0; i < ids.length; i++) {
-      await Graph.updateLead(ids[i], { Lead_x0020_Type: type });
-    }
+    for (var i = 0; i < ids.length; i++) { await Graph.updateLead(ids[i], { Lead_x0020_Type: type }); }
     UI.showToast("Set " + ids.length + " leads to type: " + type, "success");
     State.selectedLeads.clear();
     await loadAllData();
@@ -1288,9 +1278,7 @@ async function confirmClearAll() {
   if (input !== "DELETE") { UI.showToast("Clear all cancelled.", "info"); return; }
   setLoading(true);
   try {
-    for (var i = 0; i < State.leads.length; i++) {
-      await Graph.deleteLead(State.leads[i].id);
-    }
+    for (var i = 0; i < State.leads.length; i++) { await Graph.deleteLead(State.leads[i].id); }
     UI.showToast("All " + total + " leads deleted. Clean slate!", "success");
     State.selectedLeads.clear();
     await loadAllData();
@@ -1320,7 +1308,6 @@ function applyFilters() {
   if (wrap) wrap.innerHTML = renderLeadsTable(getFilteredLeads());
 }
 
-// compact = dashboard recent leads (fewer cols), agentView = hide edit/delete
 function renderLeadsTable(leads, compact, agentView) {
   if (!leads.length) return `<div class="empty-state"><p>No leads found.</p></div>`;
   return `
@@ -1328,13 +1315,7 @@ function renderLeadsTable(leads, compact, agentView) {
       <table class="data-table">
         <thead><tr>
           ${compact ? "" : `<th style="width:36px"><input type="checkbox" id="select-all-cb" class="lead-cb" onchange="toggleSelectAll(this.checked)" title="Select all"></th>`}
-          <th>Name</th>
-          <th>Type</th>
-          <th>Status</th>
-          <th>Phone</th>
-          <th>Assigned To</th>
-          <th>Address</th>
-          <th>Last Contacted</th>
+          <th>Name</th><th>Type</th><th>Status</th><th>Phone</th><th>Assigned To</th><th>Address</th><th>Last Contacted</th>
           ${compact ? "" : "<th>CBR</th><th>BTN</th><th>Flags</th><th></th>"}
         </tr></thead>
         <tbody>
@@ -1376,7 +1357,6 @@ function renderLeadsTable(leads, compact, agentView) {
     </div>`;
 }
 
-// Load a specific lead into the feed card when clicked from search results
 function loadLeadInFeed(leadId) {
   const lead = (window._myLeads || []).find(function(l) { return l.id === leadId; });
   if (!lead) return;
@@ -1389,9 +1369,11 @@ function loadLeadInFeed(leadId) {
 }
 
 // ============================================================
-//  DAILY REPORT
+//  DAILY REPORT (Admin only)
 // ============================================================
 async function renderDailyReport() {
+  if (!isAdmin()) { navigate("myleads"); return; }
+
   document.getElementById("main-content").innerHTML = `
     <div class="view-header"><h1 class="view-title">Daily Report</h1></div>
     <div class="card"><div class="empty-state" style="padding:40px">Loading report...</div></div>`;
@@ -1458,21 +1440,23 @@ function exportReportCSV() {
 }
 
 // ============================================================
-//  CONTRACTORS
+//  RAIMAK TEAM (Admin only — formerly Contractors)
 // ============================================================
 function renderContractors() {
+  if (!isAdmin()) { navigate("myleads"); return; }
+
   const { contractors, leads } = State;
   const max = Config.rules.maxLeadsPerAgent;
   document.getElementById("main-content").innerHTML = `
     <div class="view-header">
-      <h1 class="view-title">Contractors</h1>
+      <h1 class="view-title">Raimak Team</h1>
       <span class="view-subtitle">// ${contractors.length} agents</span>
     </div>
     <div class="contractor-grid">
       ${contractors.map(function(c) {
-        const count     = leads.filter(function(l){return l.assignedTo===c.name&&!Config.terminalStatuses.includes(l.status);}).length;
-        const pct       = Math.min(100,Math.round((count/max)*100));
-        const contacts  = Graph.agentContactsToday(c.name, State.activityLog);
+        const count    = leads.filter(function(l){return l.assignedTo===c.name&&!Config.terminalStatuses.includes(l.status);}).length;
+        const pct      = Math.min(100,Math.round((count/max)*100));
+        const contacts = Graph.agentContactsToday(c.email || c.name, State.activityLog);
         return `
           <div class="contractor-card">
             <div class="contractor-header">
@@ -1491,9 +1475,11 @@ function renderContractors() {
 }
 
 // ============================================================
-//  ACTIVITY LOG
+//  ACTIVITY LOG (Admin only)
 // ============================================================
 function renderActivity() {
+  if (!isAdmin()) { navigate("myleads"); return; }
+
   const { activityLog } = State;
   document.getElementById("main-content").innerHTML = `
     <div class="view-header">
@@ -1536,7 +1522,6 @@ function openEditLeadModal(id) {
 function renderLeadModal(lead) {
   const isEdit      = !!lead;
   const contractors = State.contractors.map(function(c) { return c.name; });
-  const today       = new Date().toLocaleDateString("en-US", { month:"2-digit", day:"2-digit" });
 
   document.getElementById("modal").innerHTML = `
     <div class="modal-header">
@@ -1554,7 +1539,6 @@ function renderLeadModal(lead) {
         <div class="form-group"><label>Email</label><input type="email" id="f-email" class="form-input" value="${escHtml((lead&&lead.email)||"")}"></div>
         <div class="form-group"><label>Phone</label><input type="tel" id="f-phone" class="form-input" value="${escHtml((lead&&lead.phone)||"")}"></div>
       </div>
-
       <div class="form-section-title">Address</div>
       <div class="form-group form-group-full" style="margin-bottom:12px">
         <label>Street Address</label>
@@ -1592,7 +1576,6 @@ function renderLeadModal(lead) {
         </div>
         <div class="form-group"><label>Last Contacted</label><input type="date" id="f-lastcontacted" class="form-input" value="${lead&&lead.lastContacted?lead.lastContacted.split("T")[0]:""}"></div>
       </div>
-
       <div class="form-section-title">Customer Info</div>
       <div class="form-row">
         <div class="form-group">
@@ -1608,14 +1591,6 @@ function renderLeadModal(lead) {
         </div>
       </div>
       <div class="form-group form-group-full" style="margin-bottom:16px">
-        <label>Street Address</label>
-        <input type="text" id="f-address" class="form-input" placeholder="e.g. 125 Brown Rd" value="${escHtml((lead&&lead.address)||"")}">
-      </div>
-      <div class="form-row">
-        <div class="form-group"><label>City</label><input type="text" id="f-city" class="form-input" value="${escHtml((lead&&lead.city)||"")}"></div>
-        <div class="form-group"><label>State</label><input type="text" id="f-state" class="form-input" value="${escHtml((lead&&lead.state)||"")}"></div>
-      </div>
-      <div class="form-group form-group-full" style="margin-bottom:16px">
         <label>AutoPay</label>
         <div style="display:flex;gap:16px;flex-wrap:wrap;margin-top:6px">
           ${["ACH - Debit Card","ACH - Credit Card","No Auto Pay"].map(function(opt) {
@@ -1626,7 +1601,6 @@ function renderLeadModal(lead) {
           }).join("")}
         </div>
       </div>
-
       <div class="form-group form-group-full">
         <label>Notes History</label>
         ${lead && lead.notes ? `
@@ -1661,7 +1635,7 @@ function renderLeadModal(lead) {
 }
 
 async function submitAddLead() {
-  const fields = collectLeadForm();
+  const fields    = collectLeadForm();
   if (!fields) return;
   const agentName = fields._agentName;
   delete fields._agentName;
@@ -1678,7 +1652,7 @@ async function submitAddLead() {
 }
 
 async function submitEditLead() {
-  const fields = collectLeadForm();
+  const fields    = collectLeadForm();
   if (!fields) return;
   const agentName = fields._agentName;
   delete fields._agentName;
@@ -1698,16 +1672,14 @@ function collectLeadForm() {
   const firstName = ((document.getElementById("f-firstname")||{}).value||"").trim();
   const lastName  = ((document.getElementById("f-lastname") ||{}).value||"").trim();
   const agentName = (document.getElementById("f-assigned")||{}).value || "";
-
-  // Support both old f-name and new split first/last
   const nameEl    = document.getElementById("f-name");
   const fullName  = nameEl ? ((nameEl.value||"").trim()) : (firstName + " " + lastName).trim();
 
   if (!firstName && !lastName && !fullName) { UI.showToast("Name is required.", "error"); return null; }
 
   const fields = { _agentName: agentName };
-  if (firstName) fields["FirstName"]  = firstName;
-  if (lastName)  fields["LastName"]   = lastName;
+  if (firstName) fields["FirstName"] = firstName;
+  if (lastName)  fields["LastName"]  = lastName;
   if (fullName && !firstName) fields["Title"] = fullName;
 
   const add = function(key, elId, trim) {
@@ -1731,7 +1703,6 @@ function collectLeadForm() {
   add("Zip",                              "f-zip",          true);
   add("AutoPay",                          "f-autopay");
 
-  // Date-stamp the note with admin name before saving — append to existing
   const notesEl = document.getElementById("f-notes");
   if (notesEl && notesEl.value.trim()) {
     const today     = new Date();
@@ -1744,7 +1715,6 @@ function collectLeadForm() {
   }
 
   if (!fields.Status) fields.Status = "New";
-
   return fields;
 }
 
@@ -1842,17 +1812,9 @@ const UI = {
     banner.style.cssText = `
       position:fixed;top:32px;left:0;right:0;z-index:9997;
       background:linear-gradient(90deg,#0D1B3E,#1B4F8A,#0D1B3E);
-      color:#FFFFFF;
-      padding:12px 24px;
-      display:flex;
-      align-items:center;
-      gap:16px;
-      font-family:'Rajdhani',sans-serif;
-      font-size:18px;
-      font-weight:600;
-      letter-spacing:1px;
-      border-bottom:3px solid #00FF88;
-      box-shadow:0 4px 24px rgba(0,255,136,0.3);
+      color:#FFFFFF;padding:12px 24px;display:flex;align-items:center;gap:16px;
+      font-family:'Rajdhani',sans-serif;font-size:18px;font-weight:600;letter-spacing:1px;
+      border-bottom:3px solid #00FF88;box-shadow:0 4px 24px rgba(0,255,136,0.3);
       animation:bannerSlide 0.4s ease both;
     `;
     document.body.appendChild(banner);
