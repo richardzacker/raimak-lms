@@ -397,22 +397,28 @@ async function recycleAllLeads() {
 }
 
 function startSalesFeedPolling() {
+  function startSalesFeedPolling() {
   if (State.salesFeedTimer) clearInterval(State.salesFeedTimer);
-  _lastSaleCount = State.todaySales ? State.todaySales.length : 0;
+
+  // Track by IDs not count — prevents false positives on navigation
+  let knownSaleIds = new Set((State.todaySales || []).map(function(l) { return l.id; }));
 
   State.salesFeedTimer = setInterval(async function() {
     try {
       const newSales = await Graph.getTodaySales();
 
-      if (newSales.length > _lastSaleCount) {
-        const latest = newSales[newSales.length - 1];
+      // Only trigger banner for genuinely new sales not seen before
+      const newOnes = newSales.filter(function(l) { return !knownSaleIds.has(l.id); });
+      if (newOnes.length) {
+        const latest = newOnes[newOnes.length - 1];
         UI.showSaleBanner(
           (latest && latest.name)       || "a customer",
           (latest && latest.assignedTo) || "An agent"
         );
         UI.showConfetti();
+        newOnes.forEach(function(l) { knownSaleIds.add(l.id); });
       }
-      _lastSaleCount   = newSales.length;
+
       State.todaySales = newSales;
 
       if (State.currentView === "dashboard") {
@@ -435,7 +441,6 @@ function startSalesFeedPolling() {
     } catch(e) { /* silent */ }
   }, Config.salesFeedInterval);
 }
-
 // ============================================================
 //  ADMIN — DRIP FEED
 // ============================================================
