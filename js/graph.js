@@ -6,7 +6,7 @@ const Graph = (() => {
   const host  = Config.sharePoint.hostname;
   const lists = Config.sharePoint.lists;
   let siteIds    = { leadship: null, team: null };
-  let agentCache = null; // { name (lowercase) -> numeric sharepoint id }
+  let agentCache = null;
 
   // ── Generic Fetch ──────────────────────────────────────────
   async function apiFetch(url, method = "GET", body = null) {
@@ -44,7 +44,7 @@ const Graph = (() => {
     siteIds.team     = s2.id;
   }
 
-  // ── Build Agent ID Cache from Contractor & Employee List ───
+  // ── Build Agent ID Cache ───────────────────────────────────
   async function resolveAgentCache() {
     if (agentCache) return agentCache;
     await resolveSiteIds();
@@ -58,14 +58,12 @@ const Graph = (() => {
     return agentCache;
   }
 
-  // Resolve an agent name to its numeric SharePoint Lookup ID
   async function resolveAgentId(agentName) {
     if (!agentName) return null;
     const cache = await resolveAgentCache();
     return cache[agentName.toLowerCase().trim()] || null;
   }
 
-  // ── Assign agent on a lead (handles Lookup field correctly) ─
   async function assignAgent(itemId, agentName) {
     await updateLead(itemId, { Agent_x0020_Assigned: agentName });
   }
@@ -92,13 +90,11 @@ const Graph = (() => {
     return raw.map(normalizeLeadItem);
   }
 
-  // Get a single unassigned lead for the agent feed
   async function getNextLeadForAgent(agentEmail) {
     await resolveSiteIds();
     const url = base + "/sites/" + siteIds.team + "/lists/" + lists.leadsList + "/items?expand=fields&$top=500";
     const raw = await getAllItems(url);
     const leads = raw.map(normalizeLeadItem);
-    // Find unassigned New lead not in cool-off
     return leads.find(l =>
       l.status === "New" &&
       !l.assignedTo &&
@@ -126,7 +122,7 @@ const Graph = (() => {
   }
 
   function normalizeLeadItem(item) {
-    const f    = item.fields || {};
+    const f     = item.fields || {};
     const first = f.FirstName || f.First_x0020_Name || "";
     const last  = f.LastName  || f.Last_x0020_Name  || "";
     const name  = (first + " " + last).trim() || f.Title || f.LeadName || "";
@@ -155,8 +151,8 @@ const Graph = (() => {
       leadType:        f.Lead_x0020_Type || f.Type || f.Item_x0020_Type || f.LeadType || "",
       currentMRC:      f.MonthlyRecurringCharge_x0028_MRC || f.CurrentMRC || f.MRC || "",
       currentProducts: f.CurrentProducts || "",
-      autoPay:         f.AutoPay         || "",
-      previousAgents:  f.PreviousAgents  || "",
+      autoPay:         f.AutoPay        || "",
+      previousAgents:  f.PreviousAgents || "",
     };
   }
 
@@ -193,14 +189,14 @@ const Graph = (() => {
     return raw.map(item => {
       const f = item.fields || {};
       return {
-        id:        item.id,
-        leadId:    String(f.LeadID    || f.LeadId    || ""),
-        leadName:  f.Title     || f.LeadName  || "",
-        action:    f.ActionType || f.Action   || f.Activity || "",
-        agent:     f.AgentEmail || f.Agent    || "",
-        agentEmail:f.AgentEmail || "",
-        notes:     f.Notes     || "",
-        timestamp: item.createdDateTime || f.Created || null,
+        id:         item.id,
+        leadId:     String(f.LeadID     || f.LeadId   || ""),
+        leadName:   f.Title      || f.LeadName || "",
+        action:     f.ActionType || f.Action   || f.Activity || "",
+        agent:      f.AgentEmail || f.Agent    || "",
+        agentEmail: f.AgentEmail || "",
+        notes:      f.Notes      || "",
+        timestamp:  item.createdDateTime || f.Created || null,
       };
     });
   }
@@ -212,17 +208,15 @@ const Graph = (() => {
   }
 
   // Get today's sold leads based on activity log entries.
-  // Uses activity log instead of lastModifiedDateTime to prevent
-  // count inflation from leads being touched for other reasons.
+  // Fetches leads directly to avoid timing issues with State.leads.
   async function getTodaySales() {
-  await resolveSiteIds();
-  const [log, rawLeads] = await Promise.all([
-    getActivityLog(2000),
-    getLeads(),
-  ]);
-  const today = new Date().toDateString();
-    
-    // Get unique lead IDs that were explicitly marked Sold today
+    await resolveSiteIds();
+    const [log, rawLeads] = await Promise.all([
+      getActivityLog(2000),
+      getLeads(),
+    ]);
+    const today = new Date().toDateString();
+
     const soldTodayIds = new Set();
     log.forEach(function(e) {
       if (e.action === "Status: " + Config.soldStatus &&
@@ -232,17 +226,28 @@ const Graph = (() => {
       }
     });
 
-      // Return matching leads
-  return rawLeads.filter(function(l) {
-    return soldTodayIds.has(l.id);
-  });
-}
- 
+    // Build a map of leadId -> soldBy agent name from activity log
+    const soldByMap = {};
+    log.forEach(function(e) {
+      if (e.action === "Status: " + Config.soldStatus &&
+          e.timestamp &&
+          new Date(e.timestamp).toDateString() === today) {
+        soldByMap[String(e.leadId)] = e.agent;
+      }
+    });
+
+    return rawLeads
+      .filter(function(l) { return soldTodayIds.has(String(l.id)); })
+      .map(function(l) {
+        return Object.assign({}, l, { soldBy: soldByMap[String(l.id)] || null });
+      });
+  }
+
   // Get daily activity stats per agent for the report.
   // Maps agent emails back to display names via the contractors list.
   async function getDailyStats() {
-    const log        = await getActivityLog(2000);
-    const today      = new Date().toDateString();
+    const log          = await getActivityLog(2000);
+    const today        = new Date().toDateString();
     const todayEntries = log.filter(function(e) {
       return e.timestamp && new Date(e.timestamp).toDateString() === today;
     });
@@ -255,7 +260,6 @@ const Graph = (() => {
 
     const stats = {};
     for (const entry of todayEntries) {
-      // Resolve display name from email
       const agentEmail = (entry.agent || "").toLowerCase().trim();
       const agent      = emailToName[agentEmail] || entry.agent || "Unknown";
 
@@ -271,7 +275,6 @@ const Graph = (() => {
       stats[agent].actions.push(entry);
     }
 
-    // Convert Set size to contacts count
     Object.values(stats).forEach(function(s) {
       s.contacts = s.uniqueLeads.size;
       delete s.uniqueLeads;
@@ -302,13 +305,11 @@ const Graph = (() => {
         if (daysSince < coolOffDays && !Config.terminalStatuses.includes(lead.status)) {
           flags.push("cool_off");
         }
-        // 3rd Contact leads that have cooled off 48hrs+ need recycling
         if (lead.status === "3rd Contact" && daysSince >= coolOffDays) {
           flags.push("needs_recycle");
         }
       }
 
-      // Also flag any lead inactive longer than recycleAfterDays
       const ref = lead.lastContacted || lead.createdAt;
       if (ref && !Config.terminalStatuses.includes(lead.status) && lead.status !== "3rd Contact") {
         const daysSince = (now - new Date(ref)) / 86400000;
@@ -333,8 +334,8 @@ const Graph = (() => {
   // Recycle a lead — record previous agent, unassign, reset to New
   async function recycleLead(leadId, currentAgent) {
     await resolveSiteIds();
-    const lead = State ? State.leads.find(function(l){ return l.id === leadId; }) : null;
-    const prev = lead ? (lead.previousAgents || "") : "";
+    const lead    = State ? State.leads.find(function(l){ return l.id === leadId; }) : null;
+    const prev    = lead ? (lead.previousAgents || "") : "";
     const newPrev = prev ? prev + ", " + currentAgent : currentAgent;
     await updateLead(leadId, {
       Status:               "New",
@@ -350,18 +351,11 @@ const Graph = (() => {
     return daysSince < Config.rules.coolOffDays;
   }
 
-  // Count unique leads an agent contacted today (status changes only)
-  function agentContactsToday(agentName, activityLog) {
+  // Count unique leads an agent contacted today.
+  // Accepts email directly for reliable matching against activity log.
+  function agentContactsToday(agentEmail, activityLog) {
     const today      = new Date().toDateString();
-    const agentLower = (agentName || "").toLowerCase().trim();
-
-    // Build name → email map from contractors for reverse lookup
-    const nameToEmail = {};
-    (State.contractors || []).forEach(function(c) {
-      if (c.name) nameToEmail[c.name.toLowerCase().trim()] = (c.email || "").toLowerCase().trim();
-    });
-    const agentEmail = nameToEmail[agentLower] || agentLower;
-
+    const emailLower = (agentEmail || "").toLowerCase().trim();
     const uniqueLeads = new Set();
     activityLog.forEach(function(e) {
       const entryAgent = (e.agent || "").toLowerCase().trim();
@@ -371,10 +365,8 @@ const Graph = (() => {
         e.action === "2nd Contact" ||
         e.action === "3rd Contact"
       );
-      // Match by either display name or email
-      const agentMatch = entryAgent === agentLower || entryAgent === agentEmail;
       if (isContact &&
-          agentMatch &&
+          entryAgent === emailLower &&
           e.timestamp &&
           new Date(e.timestamp).toDateString() === today &&
           e.leadId) {
