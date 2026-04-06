@@ -163,12 +163,10 @@ function showAppShell() {
 //  NAVIGATION
 // ============================================================
 function navigate(view) {
-  // Guard admin-only views — redirect agents to myleads
   const adminOnly = ["leads", "drip", "assign", "report", "contractors", "activity"];
   if (!isAdmin() && adminOnly.includes(view)) {
     view = "myleads";
   }
-
   State.currentView = view;
   document.querySelectorAll(".nav-item").forEach(function(el) { el.classList.remove("active"); });
   const navEl = document.querySelector("[data-view='" + view + "']");
@@ -207,7 +205,6 @@ function renderDashboard() {
     if (l.assignedTo) agentSales[l.assignedTo] = (agentSales[l.assignedTo] || 0) + 1;
   });
   const top5 = Object.entries(agentSales).sort(function(a,b) { return b[1]-a[1]; }).slice(0,5);
-
   const recentLeads = leads.slice().sort(function(a,b) { return new Date(b.createdAt)-new Date(a.createdAt); }).slice(0,8);
 
   document.getElementById("main-content").innerHTML = `
@@ -348,9 +345,6 @@ function renderDashboard() {
   startSalesFeedPolling();
 }
 
-// Track last known sale count to detect new sales
-let _lastSaleCount = 0;
-
 async function recycleLeadAction(leadId, currentAgent, leadName) {
   if (!confirm("Recycle \"" + leadName + "\"?\n\nThis will:\n• Reset status to New\n• Unassign from " + (currentAgent||"current agent") + "\n• Record previous assignment history\n\nThe lead can then be reassigned to a different agent.")) return;
   setLoading(true);
@@ -396,7 +390,7 @@ async function recycleAllLeads() {
   } finally { setLoading(false); }
 }
 
-  function startSalesFeedPolling() {
+function startSalesFeedPolling() {
   if (State.salesFeedTimer) clearInterval(State.salesFeedTimer);
 
   // Track by IDs not count — prevents false positives on navigation
@@ -409,10 +403,13 @@ async function recycleAllLeads() {
       // Only trigger banner for genuinely new sales not seen before
       const newOnes = newSales.filter(function(l) { return !knownSaleIds.has(l.id); });
       if (newOnes.length) {
-        const latest = newOnes[newOnes.length - 1];
+        const latest   = newOnes[newOnes.length - 1];
+        const soldBy   = latest && latest.soldBy;
+        const assignee = latest && latest.assignedTo;
         UI.showSaleBanner(
-          (latest && latest.name)       || "a customer",
-          (latest && latest.assignedTo) || "An agent"
+          (latest && latest.name) || "a customer",
+          soldBy || assignee || "An agent",
+          soldBy && assignee && soldBy !== assignee ? assignee : null
         );
         UI.showConfetti();
         newOnes.forEach(function(l) { knownSaleIds.add(l.id); });
@@ -440,6 +437,7 @@ async function recycleAllLeads() {
     } catch(e) { /* silent */ }
   }, Config.salesFeedInterval);
 }
+
 // ============================================================
 //  ADMIN — DRIP FEED
 // ============================================================
@@ -614,7 +612,6 @@ function renderMyLeads() {
 
   if (_currentFeedIndex >= myLeads.length) _currentFeedIndex = 0;
 
-  // KEY FIX: pass email instead of name for accurate contact counting
   const contactsToday = Graph.agentContactsToday((user && user.email) || "", State.activityLog);
   const atLimit       = contactsToday >= Config.rules.maxContactsPerDay;
 
@@ -668,7 +665,6 @@ function searchMyLeads(q) {
   if (!wrap) return;
   if (!q.trim()) { wrap.innerHTML = ""; return; }
   wrap.innerHTML = filtered.length ? renderLeadsTable(filtered, false, true) : `<div class="empty-state">No leads found for "${escHtml(q)}"</div>`;
-
   if (filtered.length === 1) {
     const feedWrap = document.getElementById("lead-feed-wrap");
     if (feedWrap) {
@@ -733,6 +729,20 @@ function renderLeadFeedCard(myLeads, contactsToday, forceFirst) {
         </div>
       </div>
 
+      <!-- Sold By — always visible, required before saving -->
+      <div style="margin-bottom:16px">
+        <div style="font-family:var(--font-mono);font-size:10px;color:#6B85B0;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">
+          Sold By <span style="color:var(--red)">* Required</span>
+        </div>
+        <select id="feed-sold-by" class="form-input" style="max-width:300px">
+          <option value="">Select agent who made the sale...</option>
+          ${State.contractors.map(function(c) {
+            return `<option value="${escHtml(c.name)}">${escHtml(c.name)}</option>`;
+          }).join("")}
+        </select>
+      </div>
+
+      <!-- AutoPay -->
       <div style="margin-bottom:16px">
         <div style="font-family:var(--font-mono);font-size:10px;color:#6B85B0;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px">
           AutoPay <span style="color:var(--red)">* Required</span>
@@ -850,8 +860,28 @@ async function agentSaveAll(leadId) {
   const btn        = (document.getElementById("feed-btn")      || {}).value || "";
   const autoPayEl  = document.querySelector('input[name="feed-autopay"]:checked');
   const autoPay    = autoPayEl ? autoPayEl.value : "";
+  const soldByEl   = document.getElementById("feed-sold-by");
+  const soldByName = soldByEl ? soldByEl.value : "";
 
-  if (!autoPay) { UI.showToast("Please select an AutoPay option before saving.", "error"); setLoading(false); return; }
+  // Require AutoPay
+  if (!autoPay) { UI.showToast("Please select an AutoPay option before saving.", "error"); return; }
+
+  // Require Sold By if status is Sold
+  if (newStatus === Config.soldStatus && !soldByName) {
+    UI.showToast("Please select who made this sale in the Sold By field.", "error");
+    return;
+  }
+
+  // Resolve sold by agent's email for activity log
+  const soldByContractor = soldByName
+    ? State.contractors.find(function(c) { return c.name === soldByName; })
+    : null;
+  const soldByEmail = soldByContractor
+    ? (soldByContractor.email || soldByName)
+    : (user && user.email) || "";
+
+  // For non-sold statuses, use current user's email
+  const activityEmail = newStatus === Config.soldStatus ? soldByEmail : (user && user.email) || "";
 
   let notes = lead.notes || "";
   if (newNote.trim()) {
@@ -879,17 +909,27 @@ async function agentSaveAll(leadId) {
       UI.showToast("TDM — lead returned to admin queue.", "info");
     }
 
+    // Log activity — credit goes to soldByEmail for Sold, current user for everything else
     await Graph.logActivity({
       LeadID:     leadId,
       Title:      lead.name,
       ActionType: "Status: " + newStatus,
-      AgentEmail: (user && user.email) || "",
-      Notes:      notes,
+      AgentEmail: activityEmail,
+      Notes:      notes + (newStatus === Config.soldStatus && soldByName && soldByName !== (user && user.name)
+        ? " [Sold by " + soldByName + ", recorded by " + ((user && user.name) || "admin") + "]"
+        : ""),
     });
 
     if (newStatus === Config.soldStatus) {
       UI.showConfetti();
-      UI.showSaleBanner(lead.name, (user && user.name) || "");
+      const savingAgentName = (user && user.name) || "";
+      // If saving for someone else, show "Noah just made a sale for Jon"
+      // If saving own lead, show "Jon just closed a sale!"
+      if (soldByName && savingAgentName && soldByName !== savingAgentName) {
+        UI.showSaleBanner(lead.name, soldByName, lead.assignedTo !== soldByName ? lead.assignedTo : null);
+      } else {
+        UI.showSaleBanner(lead.name, soldByName || savingAgentName, null);
+      }
     } else if (newStatus !== "TDM") {
       UI.showToast("Saved!", "success");
     }
@@ -1119,7 +1159,7 @@ function renderLeads() {
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><polyline points="7,10 12,15 17,10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="15" x2="12" y2="3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Export CSV
         </button>
-        <button class="btn-ghost btn-danger-ghost" onclick="confirmClearAll()" title="Delete all leads — fresh start">
+        <button class="btn-ghost btn-danger-ghost" onclick="confirmClearAll()">
           <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><polyline points="3,6 5,6 21,6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
           Clear All
         </button>
@@ -1377,7 +1417,6 @@ function loadLeadInFeed(leadId) {
 // ============================================================
 async function renderDailyReport() {
   if (!isAdmin()) { navigate("myleads"); return; }
-
   document.getElementById("main-content").innerHTML = `
     <div class="view-header"><h1 class="view-title">Daily Report</h1></div>
     <div class="card"><div class="empty-state" style="padding:40px">Loading report...</div></div>`;
@@ -1444,11 +1483,10 @@ function exportReportCSV() {
 }
 
 // ============================================================
-//  RAIMAK TEAM (Admin only — formerly Contractors)
+//  RAIMAK TEAM (Admin only)
 // ============================================================
 function renderContractors() {
   if (!isAdmin()) { navigate("myleads"); return; }
-
   const { contractors, leads } = State;
   const max = Config.rules.maxLeadsPerAgent;
   document.getElementById("main-content").innerHTML = `
@@ -1483,7 +1521,6 @@ function renderContractors() {
 // ============================================================
 function renderActivity() {
   if (!isAdmin()) { navigate("myleads"); return; }
-
   const { activityLog } = State;
   document.getElementById("main-content").innerHTML = `
     <div class="view-header">
@@ -1796,17 +1833,25 @@ const UI = {
     document.body.appendChild(el);
     setTimeout(function(){el.remove();},2600);
   },
-  showSaleBanner: function(leadName, agentName) {
+  // soldBy = agent who made the sale
+  // forAgent = lead's assigned agent (if different from soldBy)
+  showSaleBanner: function(leadName, soldBy, forAgent) {
     const existing = document.getElementById("sale-banner");
     if (existing) existing.remove();
     const banner = document.createElement("div");
     banner.id = "sale-banner";
+
+    // Build message:
+    // "Noah just made a sale for Jon — Customer Name"
+    // "Stephanie just closed a sale! — Customer Name"
+    const message = forAgent
+      ? `<strong>${escHtml(soldBy)}</strong> just made a sale for <strong>${escHtml(forAgent)}</strong> — <strong>${escHtml(leadName)}</strong>`
+      : `<strong>${escHtml(soldBy || "Someone")}</strong> just closed a sale! — <strong>${escHtml(leadName)}</strong>`;
+
     banner.innerHTML = `
       <div style="display:flex;align-items:center;gap:16px;justify-content:center;flex:1">
         <span style="font-size:20px">&#127881;</span>
-        <strong>${escHtml(agentName || "Someone")}</strong>
-        <span>just closed a sale —</span>
-        <strong>${escHtml(leadName || "")}</strong>
+        <span>${message}</span>
         <span style="font-size:20px">&#127881;</span>
       </div>
       <button onclick="document.getElementById('sale-banner').remove()"
