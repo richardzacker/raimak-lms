@@ -304,5 +304,707 @@
     <script src="js/auth.js"></script>
     <script src="js/graph.js"></script>
     <script src="js/app.js"></script>
+    <template id="tmpl-dashboard">
+      <div class="view-header">
+        <div>
+          <h1 class="view-title">Dashboard</h1>
+          <span class="view-subtitle" id="dash-subtitle"></span>
+        </div>
+        <button class="btn-primary admin-only" onclick="openAddLeadModal()">
+          <svg width="14" height="14" fill="none" viewBox="0 0 24 24">
+            <line
+              x1="12"
+              y1="5"
+              x2="12"
+              y2="19"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+            <line
+              x1="5"
+              y1="12"
+              x2="19"
+              y2="12"
+              stroke="currentColor"
+              stroke-width="2.5"
+              stroke-linecap="round"
+            />
+          </svg>
+          Add Lead
+        </button>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card kpi-primary">
+          <span class="kpi-label">Total Leads</span>
+          <span class="kpi-value" id="kpi-total">0</span>
+          <span class="kpi-sub" id="kpi-active-sub">0 active in pipeline</span>
+        </div>
+        <div class="kpi-card kpi-success">
+          <span class="kpi-label">Sold Today</span>
+          <span class="kpi-value" id="kpi-sold-today">0</span>
+          <span class="kpi-sub" id="kpi-close-rate"
+            >0% all-time close rate</span
+          >
+        </div>
+        <div class="kpi-card admin-only" id="kpi-recycle-card">
+          <span class="kpi-label">Needs Recycle</span>
+          <span class="kpi-value" id="kpi-recycle-count">0</span>
+          <span class="kpi-sub" id="kpi-recycle-sub">All leads current</span>
+        </div>
+        <div class="kpi-card" id="kpi-cooloff-card">
+          <span class="kpi-label">In Cool-Off</span>
+          <span class="kpi-value" id="kpi-cooloff">0</span>
+          <span class="kpi-sub" id="kpi-cooloff-sub"></span>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Pipeline Status</h2>
+          </div>
+          <div class="status-breakdown" id="dash-pipeline-status"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">
+              <span class="live-dot"></span>Live Sales Feed
+            </h2>
+            <span class="card-meta">Today</span>
+          </div>
+          <div class="sales-feed" id="dash-sales-feed"></div>
+
+          <div class="card-header top-border">
+            <h2 class="card-title">Top 5 Today</h2>
+          </div>
+          <div class="top5-list" id="dash-top5"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <h2 class="card-title">Recent Leads</h2>
+          <button class="btn-ghost-sm admin-only" onclick="navigate('leads')">
+            View all
+          </button>
+        </div>
+        <div id="dash-recent-table"></div>
+      </div>
+
+      <div class="card admin-only recycle-alert" id="dash-recycle-section">
+        <div class="card-header recycle-header">
+          <h2 class="card-title" id="dash-recycle-title">⚠️ Recycle Queue</h2>
+          <div class="action-row">
+            <span class="card-meta"
+              >3rd Contact · 48hrs+ since last contact</span
+            >
+            <button
+              class="btn-primary btn-recycle-all"
+              onclick="recycleAllLeads()"
+            >
+              ♻️ Recycle All
+            </button>
+          </div>
+        </div>
+        <div class="table-wrap" id="dash-recycle-table"></div>
+      </div>
+    </template>
+
+    <template id="tmpl-drip-feed">
+      <div class="view-header">
+        <div>
+          <h1 class="view-title">Drip Feed</h1>
+          <span class="view-subtitle" id="drip-subtitle"></span>
+        </div>
+        <button
+          class="btn-ghost"
+          id="drip-header-skip"
+          onclick="skipDripLead()"
+        >
+          Skip This Lead
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24">
+            <polyline
+              points="9,18 15,12 9,6"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+
+      <div class="drip-card" id="drip-empty-state" style="display: none">
+        <div class="drip-empty-wrap">
+          <div class="drip-empty-icon">&#10003;</div>
+          <h3 class="drip-empty-title">All Leads Assigned!</h3>
+          <p class="drip-empty-sub">
+            No unassigned leads remaining in the pipeline.
+          </p>
+        </div>
+      </div>
+
+      <div id="drip-active-state" style="display: none">
+        <div class="drip-card">
+          <div class="drip-header">
+            <span class="drip-title">Next Lead</span>
+            <div style="display: flex; gap: 8px; align-items: center">
+              <span id="drip-lead-type" class="lead-type-badge"></span>
+              <span id="drip-lead-status" class="status-badge"></span>
+            </div>
+          </div>
+
+          <div class="drip-lead-name" id="drip-lead-name"></div>
+          <div class="drip-meta" id="drip-meta-container"></div>
+          <div class="feed-notes" id="drip-notes"></div>
+
+          <div style="margin-top: 8px">
+            <span class="feed-label">Assign To Agent</span>
+            <div
+              style="
+                display: flex;
+                gap: 10px;
+                align-items: center;
+                margin-top: 8px;
+                flex-wrap: wrap;
+              "
+            >
+              <select
+                id="drip-agent-select"
+                class="filter-select"
+                style="min-width: 220px"
+              ></select>
+              <button id="drip-assign-btn" class="btn-primary">
+                <svg width="14" height="14" fill="none" viewBox="0 0 24 24">
+                  <polyline
+                    points="20,6 9,17 4,12"
+                    stroke="currentColor"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+                Assign &amp; Next
+              </button>
+              <button class="btn-ghost" onclick="skipDripLead()">Skip</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title" id="drip-remaining-title"></h2>
+          </div>
+          <div id="drip-remaining-table"></div>
+        </div>
+      </div>
+    </template>
+
+    <template id="tmpl-my-leads">
+      <div class="view-header">
+        <div>
+          <h1 class="view-title">My Leads</h1>
+          <span class="view-subtitle" id="myleads-subtitle"></span>
+        </div>
+
+        <div style="display: flex; gap: 12px; align-items: center">
+          <div
+            class="contacts-today-badge"
+            style="background: var(--surface-2); color: var(--text-1)"
+          >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24">
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="2"
+              />
+              <polyline
+                points="12,6 12,12 16,14"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span id="myleads-clock" style="color: #555555; font-weight: 600"
+              >--:--:--</span
+            >
+          </div>
+
+          <div class="contacts-today-badge" id="myleads-contact-badge">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24">
+              <circle
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="2"
+              />
+              <polyline
+                points="12,6 12,12 16,14"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            <span id="myleads-contact-text"></span>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="alert alert-info"
+        id="myleads-limit-alert"
+        style="display: none"
+      >
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24">
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            stroke-width="2"
+          />
+          <line
+            x1="12"
+            y1="8"
+            x2="12"
+            y2="12"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+          <line
+            x1="12"
+            y1="16"
+            x2="12.01"
+            y2="16"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+          />
+        </svg>
+        <span id="myleads-limit-text"></span>
+      </div>
+
+      <div id="lead-feed-wrap"></div>
+
+      <div class="admin-only" style="margin-top: 20px">
+        <div class="card">
+          <div class="card-header">
+            <h2 class="card-title">Find a Lead</h2>
+            <span class="card-meta">Search by name, phone or address</span>
+          </div>
+          <div style="padding: 16px 20px">
+            <div class="search-wrap">
+              <svg width="16" height="16" fill="none" viewBox="0 0 24 24">
+                <circle
+                  cx="11"
+                  cy="11"
+                  r="8"
+                  stroke="currentColor"
+                  stroke-width="2"
+                />
+                <line
+                  x1="21"
+                  y1="21"
+                  x2="16.65"
+                  y2="16.65"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <input
+                type="text"
+                class="search-input"
+                placeholder="Search name, phone, address..."
+                oninput="searchMyLeads(this.value)"
+                id="my-leads-search"
+              />
+            </div>
+          </div>
+          <div id="my-leads-table"></div>
+        </div>
+      </div>
+    </template>
+
+    <template id="tmpl-lead-feed-card">
+      <div
+        id="feed-card-empty"
+        class="feed-card feed-card-empty"
+        style="display: none"
+      >
+        <div class="feed-empty-icon">&#10003;</div>
+        <h3>All Caught Up!</h3>
+        <p id="feed-empty-text"></p>
+      </div>
+
+      <div id="feed-card-active" class="feed-card" style="display: none">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 4px;
+          "
+        >
+          <span class="feed-label">Next Lead</span>
+          <div style="display: flex; gap: 6px">
+            <span id="feed-lead-type" class="lead-type-badge"></span>
+            <span id="feed-current-status" class="status-badge"></span>
+          </div>
+        </div>
+
+        <div class="feed-name" id="feed-lead-name"></div>
+
+        <div
+          id="feed-cooloff-alert"
+          style="
+            display: none;
+            background: #fff8e1;
+            border: 1px solid #ffd700;
+            border-radius: 6px;
+            padding: 8px 14px;
+            margin-bottom: 12px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: #8b6914;
+          "
+        >
+          ⏱ This lead is in the cool-off period — you can still update it if the
+          customer reached out.
+        </div>
+
+        <div class="feed-meta-row" id="feed-meta-container"></div>
+
+        <div class="feed-customer-info">
+          <div class="form-group">
+            <label>BTN</label>
+            <input
+              type="text"
+              id="feed-btn"
+              class="form-input"
+              placeholder="Enter BTN"
+            />
+          </div>
+          <div class="form-group">
+            <label>Package / Current Products</label>
+            <select id="feed-products" class="form-input">
+              <option value="">Select products...</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Price (MRC)</label>
+            <input
+              type="text"
+              id="feed-mrc"
+              class="form-input"
+              placeholder="e.g. $104.49"
+            />
+          </div>
+          <div class="form-group">
+            <label>CBR</label>
+            <input
+              type="text"
+              id="feed-cbr"
+              class="form-input"
+              placeholder="Enter CBR"
+            />
+          </div>
+        </div>
+
+        <div style="margin-bottom: 16px">
+          <div
+            style="
+              font-family: var(--font-mono);
+              font-size: 10px;
+              color: #6b85b0;
+              margin-bottom: 8px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            "
+          >
+            Sold By <span style="color: var(--red)">* Required</span>
+          </div>
+          <select id="feed-sold-by" class="form-input" style="max-width: 300px">
+            <option value="">Select agent who made the sale...</option>
+          </select>
+        </div>
+
+        <div style="margin-bottom: 16px">
+          <div
+            style="
+              font-family: var(--font-mono);
+              font-size: 10px;
+              color: #6b85b0;
+              margin-bottom: 8px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            "
+          >
+            AutoPay <span style="color: var(--red)">* Required</span>
+          </div>
+          <div
+            style="display: flex; gap: 8px; flex-wrap: wrap"
+            id="feed-autopay-container"
+          ></div>
+        </div>
+
+        <div class="feed-status-row">
+          <span class="feed-label">Select Status — click Save to confirm</span>
+          <div class="feed-status-buttons" id="feed-status-buttons"></div>
+        </div>
+
+        <div
+          id="feed-staged-notice"
+          style="
+            display: none;
+            margin-top: 6px;
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--amber);
+          "
+        ></div>
+
+        <div style="margin-top: 16px">
+          <span class="feed-label">Notes</span>
+          <div
+            id="feed-past-notes-container"
+            style="
+              display: none;
+              background: #f4f7fd;
+              border: 1px solid #d0dcf0;
+              border-radius: 6px;
+              padding: 10px 14px;
+              margin-top: 6px;
+              margin-bottom: 8px;
+              max-height: 140px;
+              overflow-y: auto;
+            "
+          ></div>
+
+          <div
+            style="
+              font-family: var(--font-mono);
+              font-size: 10px;
+              color: #6b85b0;
+              margin-top: 8px;
+              margin-bottom: 4px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+            "
+          >
+            <span id="feed-today-date"></span> — Today's Note
+          </div>
+
+          <div class="feed-note-row">
+            <textarea
+              id="feed-notes"
+              class="form-input form-textarea"
+              placeholder="Add a note for today..."
+            ></textarea>
+            <button class="btn-primary" id="feed-save-btn">Save</button>
+          </div>
+        </div>
+
+        <div id="feed-next-row" style="display: none; margin-top: 12px">
+          <button
+            class="btn-cyan"
+            style="
+              width: 100%;
+              justify-content: center;
+              font-size: 16px;
+              padding: 14px;
+            "
+            onclick="advanceToNextLead()"
+          >
+            Next Lead →
+          </button>
+        </div>
+      </div>
+    </template>
+    <template id="tmpl-all-leads">
+      <div class="view-header">
+        <div>
+          <h1 class="view-title">All Leads</h1>
+          <span class="view-subtitle" id="leads-subtitle"></span>
+        </div>
+        <div class="header-actions">
+          <button class="btn-ghost" onclick="refreshData()">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24">
+              <polyline
+                points="23,4 23,10 17,10"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+              <polyline
+                points="1,20 1,14 7,14"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+              <path
+                d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            Refresh
+          </button>
+          <button class="btn-ghost" onclick="exportCSV()">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24">
+              <path
+                d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+              <polyline
+                points="7,10 12,15 17,10"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+              <line
+                x1="12"
+                y1="15"
+                x2="12"
+                y2="3"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            Export CSV
+          </button>
+          <button
+            class="btn-ghost btn-danger-ghost"
+            onclick="confirmClearAll()"
+          >
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24">
+              <polyline
+                points="3,6 5,6 21,6"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+              <path
+                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            Clear All
+          </button>
+          <button class="btn-primary" onclick="openAddLeadModal()">
+            + Add Lead
+          </button>
+        </div>
+      </div>
+
+      <div class="bulk-bar" id="bulk-bar" style="display: none">
+        <span class="bulk-count" id="bulk-count">0 selected</span>
+        <div class="bulk-actions">
+          <select
+            class="filter-select bulk-assign-select"
+            id="bulk-assign-select"
+            style="min-width: 180px; font-size: 12px; padding: 6px 10px"
+          >
+            <option value="">Assign to agent...</option>
+          </select>
+          <button class="btn-cyan bulk-btn" onclick="bulkAssign()">
+            Assign Agent
+          </button>
+
+          <select
+            class="filter-select bulk-assign-select"
+            id="bulk-type-select"
+            style="min-width: 140px; font-size: 12px; padding: 6px 10px"
+          >
+            <option value="">Assign type...</option>
+          </select>
+          <button class="btn-cyan bulk-btn" onclick="bulkAssignType()">
+            Assign Type
+          </button>
+
+          <button class="btn-ghost bulk-btn" onclick="bulkExportSelected()">
+            Export Selected
+          </button>
+          <button class="bulk-btn bulk-delete-btn" onclick="bulkDelete()">
+            <svg width="13" height="13" fill="none" viewBox="0 0 24 24">
+              <polyline
+                points="3,6 5,6 21,6"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+              <path
+                d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            Delete Selected
+          </button>
+          <button class="btn-ghost bulk-btn" onclick="clearSelection()">
+            Clear Selection
+          </button>
+        </div>
+      </div>
+
+      <div class="filters-bar">
+        <div class="search-wrap">
+          <svg width="16" height="16" fill="none" viewBox="0 0 24 24">
+            <circle
+              cx="11"
+              cy="11"
+              r="8"
+              stroke="currentColor"
+              stroke-width="2"
+            />
+            <line
+              x1="21"
+              y1="21"
+              x2="16.65"
+              y2="16.65"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+            />
+          </svg>
+          <input
+            type="text"
+            id="search-input"
+            class="search-input"
+            placeholder="Search name, email..."
+            oninput="applyFilters()"
+          />
+        </div>
+        <select
+          class="filter-select"
+          id="filter-status"
+          onchange="applyFilters()"
+        >
+          <option value="all">All Statuses</option>
+        </select>
+        <select
+          class="filter-select"
+          id="filter-agent"
+          onchange="applyFilters()"
+        >
+          <option value="all">All Agents</option>
+        </select>
+      </div>
+
+      <div class="card" id="leads-table-wrap"></div>
+    </template>
   </body>
 </html>

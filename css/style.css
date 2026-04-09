@@ -2423,3 +2423,41 @@ body::before {
   background: #ffffff;
   color: #1a2640;
 }
+.admin-only {
+  /* This class doesn't need styles, it's just a selector for JS to delete! */
+}
+.recycle-alert {
+  border-color: #ffb300 !important;
+  box-shadow: 0 0 20px rgba(255, 179, 0, 0.1);
+}
+.recycle-header {
+  background: #fff8e1 !important;
+}
+.recycle-header .card-title,
+.recycle-header .card-meta {
+  color: #8b6914 !important;
+}
+.btn-recycle-all {
+  background: #ffb300;
+  border-color: #ffb300;
+  color: #1a2640;
+}
+.drip-empty-wrap {
+  text-align: center;
+  padding: 40px 0;
+}
+.drip-empty-icon {
+  font-size: 52px;
+  margin-bottom: 16px;
+}
+.drip-empty-title {
+  font-family: var(--font-head);
+  font-size: 24px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--green);
+}
+.drip-empty-sub {
+  color: var(--text-2);
+  margin-top: 8px;
+}

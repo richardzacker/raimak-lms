@@ -9,12 +9,12 @@ const Auth = (() => {
   async function init() {
     msalInstance = new msal.PublicClientApplication({
       auth: {
-        clientId:    Config.azure.clientId,
-        authority:   `https://login.microsoftonline.com/${Config.azure.tenantId}`,
+        clientId: Config.azure.clientId,
+        authority: `https://login.microsoftonline.com/${Config.azure.tenantId}`,
         redirectUri: Config.azure.redirectUri,
       },
       cache: {
-        cacheLocation:          "localStorage",
+        cacheLocation: "localStorage",
         storeAuthStateInCookie: true,
       },
     });
@@ -48,20 +48,22 @@ const Auth = (() => {
 
   // ── Sign Out ───────────────────────────────────────────────
   function signOut() {
-    msalInstance.logoutRedirect({ postLogoutRedirectUri: Config.azure.redirectUri });
+    msalInstance.logoutRedirect({
+      postLogoutRedirectUri: Config.azure.redirectUri,
+    });
   }
 
   // ── Get Access Token ───────────────────────────────────────
   async function getToken() {
-    const account = msalInstance.getActiveAccount()
-                 || msalInstance.getAllAccounts()[0];
+    const account =
+      msalInstance.getActiveAccount() || msalInstance.getAllAccounts()[0];
     if (!account) return null;
 
     currentAccount = account;
 
     try {
       const result = await msalInstance.acquireTokenSilent({
-        scopes:  Config.scopes,
+        scopes: Config.scopes,
         account: currentAccount,
       });
 
@@ -89,19 +91,20 @@ const Auth = (() => {
 
   // ── Current User ───────────────────────────────────────────
   function getUser() {
-    const account = msalInstance?.getActiveAccount()
-                 || msalInstance?.getAllAccounts()?.[0];
+    const account =
+      msalInstance?.getActiveAccount() || msalInstance?.getAllAccounts()?.[0];
     if (!account) return null;
     currentAccount = account;
     return {
-      name:  account.name || account.username,
+      name: account.name || account.username,
       email: account.username,
     };
   }
 
   function isSignedIn() {
-    return !!(msalInstance?.getActiveAccount()
-           || msalInstance?.getAllAccounts()?.length);
+    return !!(
+      msalInstance?.getActiveAccount() || msalInstance?.getAllAccounts()?.length
+    );
   }
 
   return { init, signIn, signOut, getToken, getUser, isSignedIn };
