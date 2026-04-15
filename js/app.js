@@ -119,18 +119,29 @@ window.addEventListener("DOMContentLoaded", async function () {
 async function loadAllData() {
   setLoading(true);
   try {
-    const [rawLeads, contractors, activityLog, todaySales] = await Promise.all([
+    // 1. Fetch the base data (Notice we only call getActivityLogForToday)
+    const [rawLeads, contractors, todayLogs] = await Promise.all([
       Graph.getLeads(),
       Graph.getContractors(),
-      Graph.getActivityLog(),
-      Graph.getTodaySales(),
+      Graph.getActivityLogForToday(),
     ]);
+
     State.contractors = contractors;
     State.leads = Graph.applyBusinessRules(rawLeads, contractors);
-    State.activityLog = activityLog;
-    State.todaySales = todaySales;
+
+    // 2. Feed todayLogs directly in — NO double fetching!
+    State.todaySales = await Graph.getTodaySales(todayLogs);
+
+    // 3. Conditionally load the massive historical log ONLY for admins
+    if (isAdmin()) {
+      console.log("loaded full activity log");
+      State.activityLog = await Graph.getActivityLog();
+    } else {
+      State.activityLog = todayLogs; // Standard agents just keep the lightweight log in state
+    }
   } catch (err) {
     UI.showToast("Failed to load data: " + err.message, "error");
+    console.error("Data Load Error:", err);
   } finally {
     setLoading(false);
   }
@@ -320,21 +331,23 @@ function renderDashboard() {
   }
 
   // 4. Inject Dynamic Lists (Much smaller innerHTML blocks now!)
-  clone.getElementById("dash-pipeline-status").innerHTML = Config.leadStatuses
-    .map((s) => {
-      const cls =
-        "status-" +
-        s
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[^a-z0-9-]/g, "");
-      return `<div class="status-row">
+  if (isAdmin()) {
+    clone.getElementById("dash-pipeline-status").innerHTML = Config.leadStatuses
+      .map((s) => {
+        const cls =
+          "status-" +
+          s
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "");
+        return `<div class="status-row">
                 <span class="status-badge ${cls}">${s}</span>
                 <div class="status-bar-wrap"><div class="status-bar" style="width:${total ? (statusCounts[s] / total) * 100 : 0}%"></div></div>
                 <span class="status-count">${statusCounts[s]}</span>
               </div>`;
-    })
-    .join("");
+      })
+      .join("");
+  }
 
   clone.getElementById("dash-top5").innerHTML = top5.length
     ? top5

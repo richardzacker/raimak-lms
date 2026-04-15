@@ -125,13 +125,18 @@ const Graph = (() => {
 
   async function getLeads() {
     await resolveSiteIds();
+
+    // THE GOLDILOCKS QUERY:
+    // expand=fields (with no select) grabs ALL your custom CRM columns.
+    // $select=id... at the root blocks all the heavy Microsoft metadata.
     const url =
       base +
       "/sites/" +
       siteIds.team +
       "/lists/" +
       lists.leadsList +
-      "/items?expand=fields&$top=500";
+      `/items?expand=fields&$select=id,lastModifiedDateTime,createdDateTime&$top=2000`;
+
     const raw = await getAllItems(url);
     return raw.map(normalizeLeadItem);
   }
@@ -261,32 +266,80 @@ const Graph = (() => {
   // ============================================================
   //  ACTIVITY LOG
   // ============================================================
-
-  async function getActivityLog(limit) {
-    limit = limit || 2000;
+  async function getActivityLog() {
     await resolveSiteIds();
+    const selectedFields =
+      "LeadID,LeadId,Title,LeadName,ActionType,Action,Activity,AgentEmail,Agent,Notes,Created";
     const url =
       base +
       "/sites/" +
       siteIds.leadship +
       "/lists/" +
       lists.activityLog +
-      "/items?expand=fields&$orderby=createdDateTime desc&$top=" +
-      limit;
+      `/items?expand=fields($select=${selectedFields})&$select=id,createdDateTime&$top=2000`;
+
     const raw = await getAllItems(url);
-    return raw.map((item) => {
+
+    return raw
+      .map((item) => {
+        const f = item.fields || {};
+        return {
+          id: item.id,
+          leadId: String(f.LeadID || f.LeadId || ""),
+          leadName: f.Title || f.LeadName || "",
+          action: f.ActionType || f.Action || f.Activity || "",
+          agent: f.AgentEmail || f.Agent || "",
+          agentEmail: f.AgentEmail || "",
+          notes: f.Notes || "",
+          timestamp: item.createdDateTime || f.Created || null,
+        };
+      })
+      .reverse(); // Put newest items at the top
+  }
+
+  async function getActivityLogForToday() {
+    await resolveSiteIds();
+
+    // THE DIET QUERY: We pull 2000 items per page, but ONLY the specific fields we need.
+    // This drops the payload size by over 90%, bypassing the 429 throttling limits.
+    const selectedFields =
+      "LeadID,LeadId,Title,LeadName,ActionType,Action,Activity,AgentEmail,Agent,Notes,Created";
+    const url =
+      base +
+      "/sites/" +
+      siteIds.leadship +
+      "/lists/" +
+      lists.activityLog +
+      `/items?expand=fields($select=${selectedFields})&$select=id,createdDateTime&$top=2000`;
+
+    // getAllItems automatically pages through the database safely
+    const raw = await getAllItems(url);
+
+    const todayStr = new Date().toDateString();
+    const todayLogs = [];
+
+    // Brute-force through the massive pile to find today's data
+    for (const item of raw) {
       const f = item.fields || {};
-      return {
-        id: item.id,
-        leadId: String(f.LeadID || f.LeadId || ""),
-        leadName: f.Title || f.LeadName || "",
-        action: f.ActionType || f.Action || f.Activity || "",
-        agent: f.AgentEmail || f.Agent || "",
-        agentEmail: f.AgentEmail || "",
-        notes: f.Notes || "",
-        timestamp: item.createdDateTime || f.Created || null,
-      };
-    });
+      const timestamp = item.createdDateTime || f.Created;
+
+      if (timestamp && new Date(timestamp).toDateString() === todayStr) {
+        todayLogs.push({
+          id: item.id,
+          leadId: String(f.LeadID || f.LeadId || ""),
+          leadName: f.Title || f.LeadName || "",
+          action: f.ActionType || f.Action || f.Activity || "",
+          agent: f.AgentEmail || f.Agent || "",
+          agentEmail: f.AgentEmail || "",
+          notes: f.Notes || "",
+          timestamp: timestamp,
+        });
+      }
+    }
+
+    // Graph gave them to us oldest-first. We reverse the array so the live feed
+    // gets the newest sales at the very top (index 0).
+    return todayLogs.reverse();
   }
 
   async function logActivity(entry) {
@@ -303,46 +356,47 @@ const Graph = (() => {
 
   // Get today's sold leads based on activity log entries.
   // Fetches leads directly to avoid timing issues with State.leads.
-  async function getTodaySales() {
+  async function getTodaySales(todayLogs) {
     await resolveSiteIds();
-    const [log, rawLeads] = await Promise.all([
-      getActivityLog(2000),
-      getLeads(),
-    ]);
-    const today = new Date().toDateString();
 
-    const soldTodayIds = new Set();
-    log.forEach(function (e) {
-      if (
-        e.action === "Status: " + Config.soldStatus &&
-        e.timestamp &&
-        new Date(e.timestamp).toDateString() === today
-      ) {
-        soldTodayIds.add(String(e.leadId));
+    // If no logs were passed in, fetch them (used by the 30-sec polling timer)
+    if (!todayLogs) {
+      todayLogs = await getActivityLogForToday();
+    }
+
+    // 1. THE MAPPER: Build the translation dictionary from contractors
+    const nameLookup = {};
+    (State.contractors || []).forEach((c) => {
+      if (c.email) nameLookup[c.email.toLowerCase().trim()] = c.name;
+    });
+
+    const sales = [];
+    const seenLeadIds = new Set(); // The Bouncer
+
+    todayLogs.forEach(function (e) {
+      if (e.action === "Status: " + Config.soldStatus && e.leadId) {
+        // Only count the sale if we haven't seen this exact lead ID yet today
+        if (!seenLeadIds.has(e.leadId)) {
+          seenLeadIds.add(e.leadId);
+
+          // 2. THE INTERCEPT: Translate the raw agent ID before saving it
+          const rawAgent = e.agent || "Unknown";
+          const displayName =
+            nameLookup[rawAgent.toLowerCase().trim()] || rawAgent;
+
+          sales.push({
+            id: e.leadId,
+            name: e.leadName || "Unknown Lead",
+            soldBy: displayName, // Saves "John Doe" instead of "jdoe@..."
+            assignedTo: displayName, // Saves "John Doe" instead of "jdoe@..."
+            modified: e.timestamp,
+            saleTime: e.timestamp,
+          });
+        }
       }
     });
 
-    // Build a map of leadId -> soldBy agent name from activity log
-    const soldByMap = {};
-    log.forEach(function (e) {
-      if (
-        e.action === "Status: " + Config.soldStatus &&
-        e.timestamp &&
-        new Date(e.timestamp).toDateString() === today
-      ) {
-        soldByMap[String(e.leadId)] = e.agent;
-      }
-    });
-
-    return rawLeads
-      .filter(function (l) {
-        return soldTodayIds.has(String(l.id));
-      })
-      .map(function (l) {
-        return Object.assign({}, l, {
-          soldBy: soldByMap[String(l.id)] || null,
-        });
-      });
+    return sales;
   }
 
   // Get daily activity stats per agent for the report.
@@ -516,6 +570,7 @@ const Graph = (() => {
     getNextLeadForAgent,
     getContractors,
     getActivityLog,
+    getActivityLogForToday,
     logActivity,
     getTodaySales,
     getDailyStats,
