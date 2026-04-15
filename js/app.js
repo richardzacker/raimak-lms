@@ -134,7 +134,6 @@ async function loadAllData() {
 
     // 3. Conditionally load the massive historical log ONLY for admins
     if (isAdmin()) {
-      console.log("loaded full activity log");
       State.activityLog = await Graph.getActivityLog();
     } else {
       State.activityLog = todayLogs; // Standard agents just keep the lightweight log in state
@@ -1169,9 +1168,7 @@ function stageStatus(leadId, newStatus) {
 
 async function agentSaveAll(leadId) {
   const user = State.currentUser;
-  const lead = State.leads.find(function (l) {
-    return l.id === leadId;
-  });
+  const lead = State.leads.find((l) => l.id === leadId);
   if (!lead) return;
 
   const newStatus = _stagedStatus || lead.status;
@@ -1187,13 +1184,11 @@ async function agentSaveAll(leadId) {
   const soldByEl = document.getElementById("feed-sold-by");
   const soldByName = soldByEl ? soldByEl.value : "";
 
-  // Require AutoPay
+  // Validation
   if (!autoPay) {
     UI.showToast("Please select an AutoPay option before saving.", "error");
     return;
   }
-
-  // Require Sold By if status is Sold
   if (newStatus === Config.soldStatus && !soldByName) {
     UI.showToast(
       "Please select who made this sale in the Sold By field.",
@@ -1202,20 +1197,17 @@ async function agentSaveAll(leadId) {
     return;
   }
 
-  // Resolve sold by agent's email for activity log
+  // Activity Log Email Resolution
   const soldByContractor = soldByName
-    ? State.contractors.find(function (c) {
-        return c.name === soldByName;
-      })
+    ? State.contractors.find((c) => c.name === soldByName)
     : null;
   const soldByEmail = soldByContractor
     ? soldByContractor.email || soldByName
     : (user && user.email) || "";
-
-  // For non-sold statuses, use current user's email
   const activityEmail =
     newStatus === Config.soldStatus ? soldByEmail : (user && user.email) || "";
 
+  // Note Formatting
   let notes = lead.notes || "";
   if (newNote.trim()) {
     const today = new Date();
@@ -1230,63 +1222,81 @@ async function agentSaveAll(leadId) {
     notes = notes ? stamped + "\n" + notes : stamped;
   }
 
+  // Setup Payload
+  const todayDate = new Date().toISOString().split("T")[0];
+  const saveFields = { Status: newStatus, LastTouchedOn: todayDate };
+  if (mrc) saveFields["MonthlyRecurringCharge_x0028_MRC"] = mrc;
+  if (products) saveFields["CurrentProducts"] = products;
+  if (cbr) saveFields["CBR"] = cbr;
+  if (btn) saveFields["BTN"] = btn;
+  if (notes) saveFields["Notes"] = notes;
+  if (autoPay) saveFields["AutoPay"] = autoPay;
+
   setLoading(true);
   try {
-    const today = new Date().toISOString().split("T")[0];
-    const saveFields = { Status: newStatus, LastTouchedOn: today };
-    if (mrc) saveFields["MonthlyRecurringCharge_x0028_MRC"] = mrc;
-    if (products) saveFields["CurrentProducts"] = products;
-    if (cbr) saveFields["CBR"] = cbr;
-    if (btn) saveFields["BTN"] = btn;
-    if (notes) saveFields["Notes"] = notes;
-    if (autoPay) saveFields["AutoPay"] = autoPay;
-    await Graph.updateLead(leadId, saveFields);
+    // 1. THE TURBO BOOST: Fire all network requests concurrently
+    const networkTasks = [
+      Graph.updateLead(leadId, saveFields),
+      Graph.logActivity({
+        LeadID: leadId,
+        Title: lead.name,
+        ActionType: "Status: " + newStatus,
+        AgentEmail: activityEmail,
+        Notes:
+          notes +
+          (newStatus === Config.soldStatus &&
+          soldByName &&
+          soldByName !== (user && user.name)
+            ? " [Sold by " +
+              soldByName +
+              ", recorded by " +
+              ((user && user.name) || "admin") +
+              "]"
+            : ""),
+      }),
+    ];
 
     if (newStatus === "TDM") {
-      await Graph.assignAgent(leadId, "");
-      UI.showToast("TDM — lead returned to admin queue.", "info");
+      networkTasks.push(Graph.assignAgent(leadId, ""));
     }
 
-    // Log activity — credit goes to soldByEmail for Sold, current user for everything else
-    await Graph.logActivity({
-      LeadID: leadId,
-      Title: lead.name,
-      ActionType: "Status: " + newStatus,
-      AgentEmail: activityEmail,
-      Notes:
-        notes +
-        (newStatus === Config.soldStatus &&
-        soldByName &&
-        soldByName !== (user && user.name)
-          ? " [Sold by " +
-            soldByName +
-            ", recorded by " +
-            ((user && user.name) || "admin") +
-            "]"
-          : ""),
-    });
-    Ticker.update();
-    if (newStatus !== "TDM") {
+    // Wait for all of them to finish at the exact same time
+    await Promise.all(networkTasks);
+
+    // 2. IN-MEMORY UPDATE: Update the local state so we don't need loadAllData()
+    lead.status = newStatus;
+    lead.notes = notes;
+    if (mrc) lead.mrc = mrc; // Assuming your state keys match your variables
+    if (products) lead.products = products;
+    if (autoPay) lead.autoPay = autoPay;
+    if (newStatus === "TDM") lead.assignedTo = "";
+
+    // 3. INSTANT UI UPDATES
+    if (newStatus === "TDM") {
+      UI.showToast("TDM — lead returned to admin queue.", "info");
+    } else {
       UI.showToast("Saved!", "success");
     }
 
+    Ticker.update();
     _stagedStatus = null;
     _leadSaved = true;
-    await loadAllData();
 
     const nextRow = document.getElementById("feed-next-row");
     const searchSec = document.getElementById("lead-search-section");
     const saveBtn = document.getElementById("feed-save-btn");
-    if (nextRow) {
-      nextRow.style.display = "block";
-    }
-    if (searchSec) {
-      searchSec.style.display = "block";
-    }
+
+    if (nextRow) nextRow.style.display = "block";
+    if (searchSec) searchSec.style.display = "block";
     if (saveBtn) {
       saveBtn.textContent = "Saved ✓";
       saveBtn.disabled = true;
       saveBtn.style.background = "var(--green)";
+      setTimeout(() => {
+        saveBtn.textContent = "Save";
+        saveBtn.disabled = false;
+        saveBtn.style.background = "";
+      }, 2000);
     }
   } catch (err) {
     UI.showToast("Failed: " + err.message, "error");
@@ -1312,15 +1322,37 @@ function renderAssignLeads() {
 
   const { leads, contractors } = State;
   const unassigned = leads.filter(function (l) {
-    return !l.assignedTo && !Config.terminalStatuses.includes(l.status);
+    const isValidLead = l && l.id && (l.name || l.phone);
+    const isAvailable =
+      !l.assignedTo && !Config.terminalStatuses.includes(l.status);
+    return isValidLead && isAvailable;
   });
-  const max = Config.rules.maxLeadsPerAgent;
+
+  const agentCounts = {};
+  contractors.forEach((c) => (agentCounts[c.name] = 0));
+  leads.forEach((l) => {
+    if (
+      l.assignedTo &&
+      !Config.terminalStatuses.includes(l.status) &&
+      agentCounts[l.assignedTo] !== undefined
+    ) {
+      agentCounts[l.assignedTo]++;
+    }
+  });
+
+  const uniqueStates = [
+    ...new Set(
+      unassigned
+        .map((l) => (l.state || "").trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  ].sort();
 
   document.getElementById("main-content").innerHTML = `
     <div class="view-header">
       <div>
         <h1 class="view-title">Assign Leads</h1>
-        <span class="view-subtitle">// ${unassigned.length} unassigned</span>
+        <span class="view-subtitle">// ${unassigned.length} total unassigned</span>
       </div>
       <div style="display:flex;gap:8px">
         <button class="btn-cyan" onclick="navigate('drip')">
@@ -1333,140 +1365,204 @@ function renderAssignLeads() {
 
     <div class="card" style="margin-bottom:20px;border-color:#2563B0">
       <div class="card-header" style="background:#EEF4FB">
-        <h2 class="card-title" style="color:#0D1B3E">Assign by Quantity</h2>
-        <span class="card-meta">Set how many leads each agent should receive</span>
+        <h2 class="card-title" style="color:#0D1B3E">Bulk Assign to Agent</h2>
+        <span class="card-meta">Select an agent, lead type, state, and quantity</span>
       </div>
-      <div style="padding:16px 20px">
-        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:16px">
-          ${contractors
-            .map(function (c) {
-              const current = leads.filter(function (l) {
-                return (
-                  l.assignedTo === c.name &&
-                  !Config.terminalStatuses.includes(l.status)
-                );
-              }).length;
-              return `
-              <div style="display:flex;align-items:center;gap:10px;padding:12px;background:#F4F7FD;border:1px solid #D0DCF0;border-radius:8px">
-                <div class="contractor-avatar" style="width:36px;height:36px;font-size:16px">${c.name[0].toUpperCase()}</div>
-                <div style="flex:1;min-width:0">
-                  <div style="font-family:var(--font-head);font-size:13px;font-weight:700;color:#0D1B3E;text-transform:uppercase">${escHtml(c.name)}</div>
-                  <div style="font-family:var(--font-mono);font-size:10px;color:#8EA5C8;margin-top:2px">${current} currently assigned</div>
-                </div>
-                <div style="display:flex;align-items:center;gap:6px">
-                  <input type="number" id="qty-${escHtml(c.name)}" class="form-input" min="0" max="${unassigned.length}" placeholder="0"
-                    style="width:70px;text-align:center;padding:6px 8px;font-size:14px;font-weight:600">
-                  <span style="font-family:var(--font-mono);font-size:10px;color:#8EA5C8">leads</span>
-                </div>
-              </div>`;
-            })
-            .join("")}
-        </div>
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <button class="btn-primary" onclick="bulkAssignByQuantity()">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24"><polyline points="20,6 9,17 4,12" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            Assign by Quantity
-          </button>
-          <span id="qty-preview" style="font-family:var(--font-mono);font-size:12px;color:#6B85B0"></span>
-        </div>
-      </div>
-    </div>
+      <div style="padding:16px 20px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+        
+        <select id="bulk-agent-select" class="form-input" style="min-width: 180px; flex: 1;">
+          <option value="">Select Agent...</option>
+          ${contractors.map((c) => `<option value="${escHtml(c.name)}">${escHtml(c.name)} (${agentCounts[c.name]} assigned)</option>`).join("")}
+        </select>
 
-    <div class="assign-agent-grid">
-      ${contractors
-        .map(function (c) {
-          const count = leads.filter(function (l) {
-            return (
-              l.assignedTo === c.name &&
-              !Config.terminalStatuses.includes(l.status)
-            );
-          }).length;
-          const pct = Math.min(100, Math.round((count / max) * 100));
-          return `
-          <div class="assign-agent-card ${count >= max ? "agent-full" : ""}">
-            <div class="contractor-avatar">${c.name[0].toUpperCase()}</div>
-            <div class="assign-agent-info">
-              <span class="contractor-name">${escHtml(c.name)}</span>
-              <div class="load-bar-wrap"><div class="load-bar ${pct >= 100 ? "load-full" : pct >= 80 ? "load-high" : ""}" style="width:${pct}%"></div></div>
-              <span class="assign-count ${count >= max ? "text-danger" : ""}">${count} assigned</span>
-            </div>
-          </div>`;
-        })
-        .join("")}
+        <div style="display:flex; align-items:center; gap:8px;">
+          <select id="bulk-type-select" class="form-input" style="width: 120px; padding-right: 24px;">
+            <option value="all">Any Type</option>
+            ${(Config.leadTypes || []).map((t) => `<option value="${escHtml(t)}">${escHtml(t)}</option>`).join("")}
+          </select>
+
+          <select id="bulk-state-select" class="form-input" style="width: 120px; padding-right: 24px;">
+            <option value="all">Any State</option>
+            ${uniqueStates.map((s) => `<option value="${escHtml(s)}">${escHtml(s)}</option>`).join("")}
+          </select>
+
+          <label style="display:flex; align-items:center; gap:6px; font-size:13px; color:#0D1B3E; cursor:pointer; margin-left:4px; white-space:nowrap;">
+            <input type="checkbox" id="bulk-unworked-check" style="cursor:pointer; width:15px; height:15px;">
+            Unworked Only
+          </label>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:8px;">
+          <input type="number" id="bulk-agent-qty" class="form-input" min="1" max="${unassigned.length}" placeholder="Qty" style="width: 75px;">
+          <span id="bulk-type-count" style="font-size: 13px; color: #6B85B0; white-space: nowrap;">of ${unassigned.length} available</span>
+        </div>
+
+        <button class="btn-primary" onclick="bulkAssignToSelectedAgent()" style="white-space: nowrap;">
+          Assign
+        </button>
+      </div>
     </div>
 
     <div class="card">
-      <div class="card-header"><h2 class="card-title">Unassigned Leads (${unassigned.length})</h2></div>
+      <div class="card-header" style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px;">
+        <div>
+          <h2 class="card-title">Unassigned Leads Preview</h2>
+          <span class="card-meta" id="table-meta-count">Loading...</span>
+        </div>
+        
+        <div style="display:flex; gap:8px; align-items:center;">
+          <button id="btn-prev-page" class="btn-secondary" style="padding: 4px 10px;">&larr; Prev</button>
+          <span id="page-indicator" style="font-family:var(--font-mono); font-size: 13px; font-weight: 600; color: #0D1B3E;">Page 1</span>
+          <button id="btn-next-page" class="btn-secondary" style="padding: 4px 10px;">Next &rarr;</button>
+        </div>
+      </div>
+      
       <div class="table-wrap">
         <table class="data-table">
-          <thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Status</th><th>Assign To</th></tr></thead>
-          <tbody>
-            ${
-              unassigned.length
-                ? unassigned
-                    .map(function (lead) {
-                      return `
-              <tr>
-                <td><span class="lead-name">${escHtml(lead.name)}</span></td>
-                <td>${lead.leadType ? `<span class="lead-type-badge lead-type-${(lead.leadType || "").toLowerCase()}">${escHtml(lead.leadType)}</span>` : "—"}</td>
-                <td class="td-mono">${escHtml(lead.phone)}</td>
-                <td><span class="status-badge status-${lead.status
-                  .toLowerCase()
-                  .replace(/\s+/g, "-")
-                  .replace(/[^a-z0-9-]/g, "")}">${lead.status}</span></td>
-                <td>
-                  <div class="assign-select-row">
-                    <select class="filter-select assign-select" id="assign-${lead.id}">
-                      <option value="">Select agent</option>
-                      ${contractors
-                        .map(function (c) {
-                          const cnt = leads.filter(function (l) {
-                            return (
-                              l.assignedTo === c.name &&
-                              !Config.terminalStatuses.includes(l.status)
-                            );
-                          }).length;
-                          return `<option value="${escHtml(c.name)}">${escHtml(c.name)} (${cnt} assigned)</option>`;
-                        })
-                        .join("")}
-                    </select>
-                    <button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="assignLead('${lead.id}')">Assign</button>
-                  </div>
-                </td>
-              </tr>`;
-                    })
-                    .join("")
-                : `<tr><td colspan="5" class="empty-state">All leads are assigned!</td></tr>`
-            }
-          </tbody>
+          <thead><tr><th>Name</th><th>Type</th><th>Phone</th><th>Status</th><th style="text-align: right;">Assign To</th></tr></thead>
+          <tbody id="assign-tbody">
+            </tbody>
         </table>
       </div>
     </div>
   `;
 
-  State.contractors.forEach(function (c) {
-    const input = document.getElementById("qty-" + c.name);
-    if (input) {
-      input.addEventListener("input", function () {
-        const total = State.contractors.reduce(function (sum, agent) {
-          const val =
-            parseInt(
-              (document.getElementById("qty-" + agent.name) || {}).value || "0",
-            ) || 0;
-          return sum + val;
-        }, 0);
-        const preview = document.getElementById("qty-preview");
-        const unassignedCount = State.leads.filter(function (l) {
-          return !l.assignedTo && !Config.terminalStatuses.includes(l.status);
-        }).length;
-        if (preview)
-          preview.textContent =
-            total + " of " + unassignedCount + " unassigned leads allocated";
-        if (preview)
-          preview.style.color = total > unassignedCount ? "#FF4444" : "#2563B0";
-      });
+  // 3. Internal State & DOM Pointers
+  let currentPage = 1;
+  const itemsPerPage = 25; // Change this if you ever want more/less per page!
+  const unworkedCheck = document.getElementById("bulk-unworked-check");
+  const typeSelect = document.getElementById("bulk-type-select");
+  const stateSelect = document.getElementById("bulk-state-select");
+  const qtyInput = document.getElementById("bulk-agent-qty");
+  const countDisplay = document.getElementById("bulk-type-count");
+
+  const tbody = document.getElementById("assign-tbody");
+  const prevBtn = document.getElementById("btn-prev-page");
+  const nextBtn = document.getElementById("btn-next-page");
+  const pageIndicator = document.getElementById("page-indicator");
+  const tableMetaCount = document.getElementById("table-meta-count");
+
+  // 4. The Smart Table Renderer
+  function updateTableAndMath() {
+    const selectedType = typeSelect ? typeSelect.value : "all";
+    const selectedState = stateSelect ? stateSelect.value : "all";
+    const requireUnworked = unworkedCheck ? unworkedCheck.checked : false;
+
+    // Filter master pool based on dropdowns AND checkbox
+    const filteredLeads = unassigned.filter(function (l) {
+      const typeMatch =
+        selectedType === "all" ||
+        (l.leadType && l.leadType.toLowerCase() === selectedType.toLowerCase());
+      const stateMatch =
+        selectedState === "all" ||
+        (l.state && l.state.toUpperCase() === selectedState.toUpperCase());
+
+      // 3. THE NEW RULE: If checked, lead must have NO previous agents
+      const unworkedMatch = !requireUnworked || !l.previousAgents;
+
+      return typeMatch && stateMatch && unworkedMatch;
+    });
+
+    // Update Bulk Assign max math
+    const total = filteredLeads.length;
+    if (countDisplay) countDisplay.textContent = `of ${total} available`;
+    if (qtyInput) {
+      qtyInput.max = total;
+      if (parseInt(qtyInput.value, 10) > total) qtyInput.value = total;
     }
-  });
+
+    // Calculate Pagination Math
+    const totalPages = Math.max(1, Math.ceil(total / itemsPerPage));
+    if (currentPage > totalPages) currentPage = totalPages;
+    if (currentPage < 1) currentPage = 1;
+
+    // Update UI text and button disabled states
+    pageIndicator.textContent = `Page ${currentPage} of ${totalPages}`;
+    tableMetaCount.textContent = `Showing ${total} leads matching filters`;
+
+    prevBtn.disabled = currentPage === 1;
+    prevBtn.style.opacity = currentPage === 1 ? "0.4" : "1";
+
+    nextBtn.disabled = currentPage === totalPages;
+    nextBtn.style.opacity = currentPage === totalPages ? "0.4" : "1";
+
+    // Slice for the current page and Draw HTML
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const displayLeads = filteredLeads.slice(
+      startIndex,
+      startIndex + itemsPerPage,
+    );
+
+    if (displayLeads.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No unassigned leads match these filters!</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = displayLeads
+      .map(function (lead) {
+        return `
+        <tr>
+          <td><span class="lead-name">${escHtml(lead.name)}</span></td>
+          
+          <td>${lead.leadType ? `<span class="lead-type-badge lead-type-${(lead.leadType || "").toLowerCase()}">${escHtml(lead.leadType)}</span>` : "—"}</td>
+          <td class="td-mono">${escHtml(lead.phone)}</td>
+          <td><span class="status-badge status-${lead.status
+            .toLowerCase()
+            .replace(/\s+/g, "-")
+            .replace(/[^a-z0-9-]/g, "")}">${lead.status}</span></td>
+          
+          <td>
+            <div class="assign-select-row" style="display:flex; gap:6px; align-items:center; justify-content: flex-end;">
+              <select class="filter-select assign-select" id="assign-${lead.id}">
+                <option value="">Select agent</option>
+                ${contractors.map((c) => `<option value="${escHtml(c.name)}">${escHtml(c.name)} (${agentCounts[c.name]} assigned)</option>`).join("")}
+              </select>
+              
+              <button class="btn-primary" style="padding:6px 14px;font-size:12px" onclick="assignLead('${lead.id}')">Assign</button>
+              
+              <button class="btn-secondary" style="padding:6px 14px;font-size:12px" 
+              onclick="renderLeadModal(State.leads.find(l => l.id === '${lead.id}'))">
+                View
+              </button>
+            </div>
+          </td>
+        </tr>`;
+      })
+      .join("");
+  }
+
+  // 5. Attach Event Listeners
+  if (unworkedCheck)
+    unworkedCheck.addEventListener("change", () => {
+      currentPage = 1;
+      updateTableAndMath();
+    });
+  if (typeSelect)
+    typeSelect.addEventListener("change", () => {
+      currentPage = 1;
+      updateTableAndMath();
+    });
+  if (stateSelect)
+    stateSelect.addEventListener("change", () => {
+      currentPage = 1;
+      updateTableAndMath();
+    });
+
+  if (prevBtn)
+    prevBtn.addEventListener("click", () => {
+      if (currentPage > 1) {
+        currentPage--;
+        updateTableAndMath();
+      }
+    });
+  if (nextBtn)
+    nextBtn.addEventListener("click", () => {
+      currentPage++;
+      updateTableAndMath();
+    });
+
+  // 6. Initialize the math & table on first load
+  updateTableAndMath();
 }
 
 async function assignLead(leadId) {
@@ -1500,6 +1596,91 @@ async function assignLead(leadId) {
     renderAssignLeads();
   } catch (err) {
     UI.showToast("Failed: " + err.message, "error");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function bulkAssignToSelectedAgent() {
+  const agentName = document.getElementById("bulk-agent-select").value;
+  const qty = parseInt(document.getElementById("bulk-agent-qty").value, 10);
+  const selectedType = document.getElementById("bulk-type-select").value;
+  const selectedState = document.getElementById("bulk-state-select").value;
+
+  if (!agentName) {
+    UI.showToast("Please select an agent first.", "warning");
+    return;
+  }
+  if (!qty || qty <= 0) {
+    UI.showToast("Please enter a valid number of leads.", "warning");
+    return;
+  }
+
+  // 1. Filter by unassigned, terminal status, type, AND state
+  const unassigned = State.leads.filter(function (l) {
+    const isAvailable =
+      !l.assignedTo && !Config.terminalStatuses.includes(l.status);
+
+    const matchesType =
+      selectedType === "all" ||
+      (l.leadType && l.leadType.toLowerCase() === selectedType.toLowerCase());
+
+    const matchesState =
+      selectedState === "all" ||
+      (l.state && l.state.toUpperCase() === selectedState.toUpperCase());
+
+    return isAvailable && matchesType && matchesState;
+  });
+
+  // 2. Filter out leads the agent has previously worked
+  const validLeads = unassigned.filter(function (l) {
+    const prevAgents = (l.previousAgents || "").toLowerCase();
+    return !prevAgents.includes(agentName.toLowerCase());
+  });
+
+  // Dynamic labels for the Toast notifications
+  const stateLabel = selectedState === "all" ? "" : `${selectedState} `;
+  const typeLabel = selectedType === "all" ? "fresh" : selectedType;
+  const combinedLabel = `${stateLabel}${typeLabel}`.trim();
+
+  // 3. Validation Warnings
+  if (validLeads.length === 0) {
+    UI.showToast(
+      `${agentName} has no available ${combinedLabel} leads left to work!`,
+      "warning",
+    );
+    return;
+  }
+
+  if (qty > validLeads.length) {
+    UI.showToast(
+      `Only ${validLeads.length} ${combinedLabel} leads available for ${agentName}.`,
+      "warning",
+    );
+    return;
+  }
+
+  const leadsToAssign = validLeads.slice(0, qty);
+
+  setLoading(true);
+  try {
+    await Promise.all(
+      leadsToAssign.map(async (lead) => {
+        await Graph.updateLead(lead.id, {
+          Agent_x0020_Assigned: agentName,
+        });
+        lead.assignedTo = agentName;
+      }),
+    );
+
+    UI.showToast(
+      `Successfully assigned ${qty} ${combinedLabel} leads to ${agentName}!`,
+      "success",
+    );
+    renderAssignLeads();
+  } catch (err) {
+    console.error("Bulk Assign Error:", err);
+    UI.showToast("Failed to assign leads: " + err.message, "error");
   } finally {
     setLoading(false);
   }
@@ -1903,7 +2084,9 @@ function applyFilters() {
     (document.getElementById("filter-status") || {}).value || "all";
   State.filters.assignedTo =
     (document.getElementById("filter-agent") || {}).value || "all";
+
   const wrap = document.getElementById("leads-table-wrap");
+
   if (wrap) {
     wrap.replaceChildren(renderLeadsTable(getFilteredLeads()));
   }

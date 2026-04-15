@@ -482,7 +482,43 @@ body::before {
     0 6px 20px var(--blue-glow),
     0 0 0 1px var(--blue-bright);
 }
+.btn-secondary {
+  background: linear-gradient(135deg, #ea580c, #f97316);
+  color: #fff;
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.5px;
+  padding: 9px 20px;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all var(--transition);
+  text-transform: uppercase;
+  position: relative;
+  overflow: hidden;
+  border: none;
+  cursor: pointer;
+}
 
+.btn-secondary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    135deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.15)
+  );
+}
+
+.btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    0 6px 20px rgba(249, 115, 22, 0.4),
+    0 0 0 1px #f97316;
+}
 .btn-cyan {
   background: transparent;
   color: var(--cyan);
