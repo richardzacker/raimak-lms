@@ -1904,7 +1904,9 @@ function applyFilters() {
   State.filters.assignedTo =
     (document.getElementById("filter-agent") || {}).value || "all";
   const wrap = document.getElementById("leads-table-wrap");
-  if (wrap) wrap.innerHTML = renderLeadsTable(getFilteredLeads());
+  if (wrap) {
+    wrap.replaceChildren(renderLeadsTable(getFilteredLeads()));
+  }
 }
 
 function renderLeadsTable(leads, compact = false, agentView = false) {
