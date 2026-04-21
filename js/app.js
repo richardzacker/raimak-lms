@@ -851,30 +851,34 @@ function renderMyLeads() {
   // ==========================================
   //  THE STRICT BOUNCER
   // ==========================================
-  const myLeads = State.leads.filter((l) => {
-    const assigned = (l.assignedTo || "")
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .trim();
-    const matchesAgent =
-      assigned &&
-      (assigned === agentName.replace(/\s+/g, " ") ||
-        assigned === userName.replace(/\s+/g, " ") ||
-        assigned === userEmail.replace(/\s+/g, " "));
+  let myLeads;
+  if (window._forceShowLead && window._myLeads && window._myLeads.length > 0) {
+    myLeads = window._myLeads;
+  } else {
+    // Otherwise, run the normal filter to build the agent's daily queue
+    myLeads = State.leads.filter((l) => {
+      const assigned = (l.assignedTo || "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+      const matchesAgent =
+        assigned &&
+        (assigned === agentName.replace(/\s+/g, " ") ||
+          assigned === userName.replace(/\s+/g, " ") ||
+          assigned === userEmail.replace(/\s+/g, " "));
 
-    // If they used the search bar to jump to a specific lead, bypass the bouncer!
-    if (window._forceShowLead) return matchesAgent;
+      // Bouncer 1: Is it a terminal status?
+      const isTerminal =
+        Config.terminalStatuses.includes(l.status) ||
+        l.status === "3rd Contact";
 
-    // Bouncer 1: Is it a terminal status? (Added explicit fallback for "3rd Contact")
-    const isTerminal =
-      Config.terminalStatuses.includes(l.status) || l.status === "3rd Contact";
+      // Bouncer 2: Is it in cool-off?
+      const inCoolOff = Graph.isInCoolOff(l);
 
-    // Bouncer 2: Is it in cool-off?
-    const inCoolOff = Graph.isInCoolOff(l);
-
-    // ONLY keep actionable, unworked leads in the deck!
-    return matchesAgent && !isTerminal && !inCoolOff;
-  });
+      // ONLY keep actionable, unworked leads in the deck!
+      return matchesAgent && !isTerminal && !inCoolOff;
+    });
+  }
 
   // Keep global variables intact
   window._myLeads = myLeads;
@@ -959,19 +963,40 @@ function searchMyLeads(q) {
   }
 
   const queryLower = q.trim().toLowerCase();
-
-  // THE UPGRADE: Check for our future toggle switch.
-  // If it doesn't exist yet, default to true so you can search everyone right now.
   const toggleEl = document.getElementById("toggle-search-all");
   const searchAll = toggleEl ? toggleEl.checked : true;
 
-  // Choose the data source based on the toggle
-  const dataSource = searchAll ? State.leads : window._myLeads || [];
+  // Grab the current agent's identity (matching the logic from your render function)
+  const agentName = (window._agentName || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  const userName = ((State.currentUser && State.currentUser.name) || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  const userEmail = ((State.currentUser && State.currentUser.email) || "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 
-  const filtered = dataSource.filter((l) => {
-    const isAssigned = searchAll
-      ? l.assignedTo && l.assignedTo.trim() !== ""
-      : true;
+  // THE FIX: Always search the master database so we catch cool-off and terminal leads!
+  const filtered = (State.leads || []).filter((l) => {
+    const assigned = (l.assignedTo || "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+
+    let passesAssignmentFilter = false;
+
+    if (searchAll) {
+      // Searching everything: just verify it's assigned to someone
+      passesAssignmentFilter = assigned !== "";
+    } else {
+      // Searching "My Leads": verify it belongs to THIS agent specifically
+      passesAssignmentFilter =
+        assigned &&
+        (assigned === agentName ||
+          assigned === userName ||
+          assigned === userEmail);
+    }
 
     const matchesSearch =
       (l.name && l.name.toLowerCase().includes(queryLower)) ||
@@ -980,7 +1005,7 @@ function searchMyLeads(q) {
       (l.cbr && l.cbr.includes(queryLower)) ||
       (l.address && l.address.toLowerCase().includes(queryLower));
 
-    return isAssigned && matchesSearch;
+    return passesAssignmentFilter && matchesSearch;
   });
 
   if (filtered.length) {
@@ -1320,6 +1345,8 @@ async function agentSaveAll(leadId) {
   if (!lead) return;
 
   const newStatus = _stagedStatus || lead.status;
+
+  // Kept your exact original IDs!
   const mrc = (document.getElementById("feed-mrc") || {}).value || "";
   const products = (document.getElementById("feed-products") || {}).value || "";
   const newNote = (document.getElementById("feed-notes") || {}).value || "";
@@ -1332,16 +1359,21 @@ async function agentSaveAll(leadId) {
   const soldByEl = document.getElementById("feed-sold-by");
   const soldByName = soldByEl ? soldByEl.value : "";
 
+  // NEW: Grab the universal callback date from the UI
+  //const rawCallbackDate = (document.getElementById("f-callback-date") || {}).value || "";
+
   // Validation
   if (!autoPay) {
-    UI.showToast("Please select an AutoPay option before saving.", "error");
+    if (window.UI && UI.showToast)
+      UI.showToast("Please select an AutoPay option before saving.", "error");
     return;
   }
   if (newStatus === Config.soldStatus && !soldByName) {
-    UI.showToast(
-      "Please select who made this sale in the Sold By field.",
-      "error",
-    );
+    if (window.UI && UI.showToast)
+      UI.showToast(
+        "Please select who made this sale in the Sold By field.",
+        "error",
+      );
     return;
   }
 
@@ -1380,9 +1412,16 @@ async function agentSaveAll(leadId) {
   if (notes) saveFields["Notes"] = notes;
   if (autoPay) saveFields["AutoPay"] = autoPay;
 
+  // NEW: Format the callback date for SharePoint
+  /**if (rawCallbackDate) {
+    saveFields["CallbackDateTime"] = new Date(rawCallbackDate).toISOString();
+  } else if (newStatus !== "Pending Order" && newStatus !== "Callback") {
+    // Clear it out of the database if they change the status to something else
+    saveFields["CallbackDateTime"] = null; 
+  }**/
+
   setLoading(true);
   try {
-    // 1. THE TURBO BOOST: Fire all network requests concurrently
     const networkTasks = [
       Graph.updateLead(leadId, saveFields),
       Graph.logActivity({
@@ -1408,8 +1447,8 @@ async function agentSaveAll(leadId) {
       networkTasks.push(Graph.assignAgent(leadId, ""));
     }
 
-    // Wait for all of them to finish at the exact same time
     await Promise.all(networkTasks);
+
     State.activityLog.push({
       leadId: leadId,
       agent: activityEmail,
@@ -1417,18 +1456,27 @@ async function agentSaveAll(leadId) {
       timestamp: new Date().toISOString(),
     });
     delete State.drafts[leadId];
+
+    // --- THE OPTIMISTIC UI UPDATE ---
+    // Update local memory so ghost leads vanish instantly and cached loads are accurate
     lead.status = newStatus;
     lead.notes = notes;
-    if (mrc) lead.mrc = mrc; // Assuming your state keys match your variables
+    if (mrc) lead.mrc = mrc;
     if (products) lead.products = products;
+    if (cbr) lead.cbr = cbr;
+    if (btn) lead.btn = btn;
     if (autoPay) lead.autoPay = autoPay;
     if (newStatus === "TDM") lead.assignedTo = "";
 
-    // 3. INSTANT UI UPDATES
+    // Crucial for the Bouncer: give the local lead the raw date string so the math works
+    //lead.callbackDate = rawCallbackDate || null;
+    // --------------------------------
+
     if (newStatus === "TDM") {
-      UI.showToast("TDM — lead returned to admin queue.", "info");
+      if (window.UI && UI.showToast)
+        UI.showToast("TDM — lead returned to admin queue.", "info");
     } else {
-      UI.showToast("Saved!", "success");
+      if (window.UI && UI.showToast) UI.showToast("Saved!", "success");
     }
 
     Ticker.update();
@@ -1452,7 +1500,8 @@ async function agentSaveAll(leadId) {
       }, 2000);
     }
   } catch (err) {
-    UI.showToast("Failed: " + err.message, "error");
+    if (window.UI && UI.showToast)
+      UI.showToast("Failed: " + err.message, "error");
   } finally {
     setLoading(false);
   }
@@ -2277,37 +2326,6 @@ function bulkExportSelected() {
   UI.showToast("Exported " + leads.length + " leads!", "success");
 }
 
-async function confirmClearAll() {
-  const total = State.leads.length;
-  if (!total) {
-    UI.showToast("No leads to clear.", "info");
-    return;
-  }
-  const input = prompt(
-    "This will permanently delete ALL " +
-      total +
-      " leads.\n\nType DELETE to confirm:",
-  );
-  if (input !== "DELETE") {
-    UI.showToast("Clear all cancelled.", "info");
-    return;
-  }
-  setLoading(true);
-  try {
-    for (var i = 0; i < State.leads.length; i++) {
-      await Graph.deleteLead(State.leads[i].id);
-    }
-    UI.showToast("All " + total + " leads deleted. Clean slate!", "success");
-    State.selectedLeads.clear();
-    await loadAllData();
-    renderLeads();
-  } catch (err) {
-    UI.showToast("Failed: " + err.message, "error");
-  } finally {
-    setLoading(false);
-  }
-}
-
 function getFilteredLeads() {
   const { status, search, assignedTo } = State.filters;
   const q = (search || "").trim().toLowerCase();
@@ -2449,14 +2467,29 @@ function buildLeadRowHtml(lead, compact, agentView, admin) {
 }
 
 function loadLeadInFeed(leadId) {
-  const realIndex = (window._myLeads || []).findIndex((l) => l.id === leadId);
-  if (realIndex !== -1) {
-    _leadSaved = false;
-    _currentFeedIndex = realIndex;
-    window._forceShowLead = true;
-    renderMyLeads();
-    window.scrollTo({ top: 0, behavior: "smooth" });
+  let realIndex = (window._myLeads || []).findIndex((l) => l.id === leadId);
+  if (realIndex === -1) {
+    const masterList = State.leads || State.allLeads || [];
+    const globalLead = masterList.find((l) => l.id === leadId);
+
+    if (globalLead) {
+      // Temporarily inject it at the very beginning of their personal feed
+      window._myLeads = window._myLeads || [];
+      window._myLeads.unshift(globalLead);
+      realIndex = 0;
+    } else {
+      if (window.UI && UI.showToast)
+        UI.showToast("Lead not found in database.", "error");
+      return;
+    }
   }
+
+  // 3. Render the card (now guaranteed to work)
+  _leadSaved = false;
+  _currentFeedIndex = realIndex;
+  window._forceShowLead = true;
+  renderMyLeads();
+  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 // ============================================================
@@ -3225,40 +3258,102 @@ function updateBadges() {
   }
 }
 
-function exportCSV() {
-  const leads = getFilteredLeads();
-  const today = new Date().toISOString().slice(0, 10);
-  const csv = [
-    "Name,Type,Email,Phone,Status,Source,Assigned To,MRC,Current Products,Last Contacted,Notes",
-  ]
-    .concat(
-      leads.map(function (l) {
-        return [
-          l.name,
-          l.leadType,
-          l.email,
-          l.phone,
-          l.status,
-          l.source,
-          l.assignedTo,
-          l.currentMRC,
-          l.currentProducts,
-          l.lastContacted,
-          l.notes,
-        ]
-          .map(function (v) {
-            return '"' + String(v || "").replace(/"/g, '""') + '"';
-          })
-          .join(",");
-      }),
-    )
-    .join("\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
-  a.download = "raimak-leads-" + today + ".csv";
-  a.click();
-  UI.showToast("Exported!", "success");
+function exportD2DLeads() {
+  // Set up our diagnostic counters
+  let workedBy1 = 0;
+  let workedBy2 = 0;
+  let workedBy3Plus = 0;
+
+  // 1. Filter the master list by parsing the comma-separated string
+  const d2dLeads = (State.leads || []).filter((l) => {
+    let count = 0;
+
+    if (Array.isArray(l.previousAgents)) {
+      count = l.previousAgents.length;
+    } else if (typeof l.previousAgents === "string") {
+      // Split by comma, trim spaces, and count the actual names
+      count = l.previousAgents
+        .split(",")
+        .map((a) => a.trim())
+        .filter((a) => a !== "").length;
+    } else {
+      count = parseInt(l.previousAgents) || 0;
+    }
+
+    // Tally them up for the console log!
+    if (count === 1) workedBy1++;
+    else if (count === 2) workedBy2++;
+    else if (count >= 3) workedBy3Plus++;
+
+    return count >= 3;
+  });
+
+  // Print the final funnel math to the console
+  console.log("--- D2D AGENT TOUCH COUNTS ---");
+  console.log(`Leads worked by exactly 1 agent: ${workedBy1}`);
+  console.log(`Leads worked by exactly 2 agents: ${workedBy2}`);
+  console.log(`Leads worked by 3+ agents: ${workedBy3Plus}`);
+  console.log("------------------------------");
+
+  if (d2dLeads.length === 0) {
+    if (window.UI && UI.showToast)
+      UI.showToast("No leads have 3+ previous agents yet.", "warning");
+    return;
+  }
+
+  // 2. Set up the exact requested headers
+  const headers = [
+    "First Name",
+    "Last Name",
+    "Address",
+    "City",
+    "State",
+    "BTN",
+    "CBR",
+    "currentMRC",
+    "currentProducts",
+  ];
+
+  // 3. Map the data using your native database fields
+  const rows = d2dLeads.map((l) => {
+    const firstName = l.firstName || "";
+    const lastName = l.lastName || "";
+    const address = l.address || "";
+    const city = l.city || "";
+    const state = l.state || "";
+    const btn = l.BTN || l.btn || l.phone || "";
+    const cbr = l.CBR || l.cbr || l.altPhone || "";
+    const mrc = l.currentMRC || l.mrc || "";
+    const products = l.currentProducts || l.products || "";
+
+    return `"${firstName}","${lastName}","${address}","${city}","${state}","${btn}","${cbr}","${mrc}","${products}"`;
+  });
+
+  // 4. Build the CSV payload
+  const csvContent = headers.join(",") + "\n" + rows.join("\n");
+
+  // 5. Trigger the download
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute(
+    "download",
+    `D2D_Export_${new Date().toLocaleDateString().replace(/\//g, "-")}.csv`,
+  );
+
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+
+  if (window.UI && UI.showToast)
+    UI.showToast(
+      `Exported ${d2dLeads.length} leads for Door-to-Door!`,
+      "success",
+    );
 }
+
 function updateLeadDraft(leadId, fieldName, value) {
   // If this lead doesn't have a draft object yet, create one
   if (!State.drafts[leadId]) {
