@@ -3285,7 +3285,7 @@ function exportD2DLeads() {
     else if (count === 2) workedBy2++;
     else if (count >= 3) workedBy3Plus++;
 
-    return count >= 3;
+    return count >= 2;
   });
 
   // Print the final funnel math to the console
