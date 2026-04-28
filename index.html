@@ -7,10 +7,11 @@
     <title>Raimak LMS</title>
     <link rel="stylesheet" href="css/style.css?v=3.0" />
     <script src="https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js"></script>
-    <script src="js/config.js?v=3.0"></script>
-    <script src="js/auth.js?v=3.0"></script>
-    <script src="js/graph.js?v=3.0"></script>
-    <script src="js/app.js?v=3.0"></script>
+    <script src="js/config.js?v=4.0"></script>
+    <script src="js/auth.js?v=4.0"></script>
+    <script src="js/graph.js?v=4.0"></script>
+    <script src="js/app.js?v=4.0"></script>
+    <script src="js/points.js?v=1.1"></script>
   </head>
   <body>
     <div id="login-view" class="login-screen" style="display: none">
@@ -343,11 +344,41 @@
         <div class="spinner"></div>
       </div>
     </div>
-    <div class="sales-ticker-wrap">
-  <div id="sales-ticker-content" class="sales-ticker-content">
+  <div class="sales-ticker-wrap">
+    <div id="sales-ticker-content" class="sales-ticker-content">
     Loading live stats...
+    </div>
   </div>
-</div>
+  <div id="economy-hud" class="economy-hud">
+      
+      <div class="hud-badge">
+        <span class="hud-lvl-text">LVL</span>
+        <span id="hud-level" class="hud-lvl-num">1</span>
+      </div>
+
+      <div class="hud-progress-wrapper">
+        <div class="hud-xp-text">
+          <span id="hud-xp-current">0</span> / <span id="hud-xp-next">125</span> XP
+        </div>
+        <div class="hud-track">
+          <div id="hud-fill" class="hud-fill"></div>
+        </div>
+      </div>
+
+      <div class="hud-bank">
+        <span id="hud-balance">0</span>
+        <span class="hud-currency">PTS</span>
+      </div>
+      
+      <div id="hud-combo-container" class="hud-combo-container">
+          <span class="hud-combo-x">x</span><span id="hud-combo-count">0</span>
+          <span class="hud-combo-text">SALES</span>
+      </div>
+  </div>
+  <div id="level-up-banner" class="level-up-banner">
+    <div class="lvl-up-title">LEVEL UP!</div>
+    <div class="lvl-up-subtitle">You reached Level <span id="lvl-up-number">50</span></div>
+  </div>
 <div id="modal-overlay" class="modal-overlay"style="display: none;">
   <div id="modal" class="modal"></div>
     <template id="tmpl-dashboard">

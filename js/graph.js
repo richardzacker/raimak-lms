@@ -263,6 +263,149 @@ const Graph = (() => {
     });
   }
 
+  async function getAgentScores() {
+    await resolveSiteIds();
+
+    const url =
+      base +
+      "/sites/" +
+      siteIds.team +
+      "/lists/" +
+      lists.agentScores + // <-- Now using the dynamic config ID
+      "/items?expand=fields($select=AgentEmail,AgentName,CurrentPoints,LifetimePoints)&$top=500";
+
+    const raw = await getAllItems(url);
+
+    return raw.map((item) => {
+      const f = item.fields || {};
+      return {
+        id: item.id,
+        AgentEmail: f.AgentEmail || "",
+        AgentName: f.AgentName || "",
+        CurrentPoints:
+          typeof f.CurrentPoints === "number" ? f.CurrentPoints : 0,
+        LifetimePoints:
+          typeof f.LifetimePoints === "number" ? f.LifetimePoints : 0,
+      };
+    });
+  }
+
+  async function createAgentScore(email, name) {
+    await resolveSiteIds();
+
+    const url =
+      base +
+      "/sites/" +
+      siteIds.team +
+      "/lists/" +
+      lists.agentScores +
+      "/items";
+
+    const payload = {
+      fields: {
+        AgentEmail: email,
+        AgentName: name,
+        CurrentPoints: 0,
+        LifetimePoints: 0,
+      },
+    };
+
+    const res = await apiFetch(url, "POST", payload);
+
+    // Return a clean object formatted exactly like getAgentScores does
+    return {
+      id: res.id,
+      AgentEmail: email,
+      AgentName: name,
+      CurrentPoints: 0,
+      LifetimePoints: 0,
+    };
+  }
+
+  async function checkLedgerForDuplicate(leadId, actionType) {
+    if (!leadId || !actionType) return false;
+
+    await resolveSiteIds();
+
+    // We use the OData $filter parameter to ask SharePoint to only return exact matches.
+    // Because you indexed these columns, this query will execute in milliseconds.
+    const url =
+      base +
+      "/sites/" +
+      siteIds.team +
+      "/lists/" +
+      lists.agentScoresLedger + // <-- Using your new config variable!
+      `/items?$expand=fields&$filter=fields/LeadID eq '${leadId}' and fields/ActionType eq '${actionType}'`;
+
+    try {
+      const res = await apiFetch(url);
+
+      // If the array has anything in it, a receipt already exists. Return true (Duplicate found!)
+      if (res && res.value && res.value.length > 0) {
+        return true;
+      }
+      return false; // Array is empty, the action is fresh!
+    } catch (err) {
+      console.error("Ledger Check Error:", err);
+      // Fail safely: if the check crashes, assume it's a duplicate so we don't accidentally give out infinite money.
+      return true;
+    }
+  }
+
+  // ── THE RECEIPT: Write the transaction to the Ledger ──
+  async function writeLedgerTransaction(
+    agentEmail,
+    actionType,
+    pointValue,
+    leadId = "",
+  ) {
+    await resolveSiteIds();
+
+    const url =
+      base +
+      "/sites/" +
+      siteIds.team +
+      "/lists/" +
+      lists.agentScoresLedger +
+      "/items";
+
+    // Generate a unique transaction ID (e.g., "jdoe@email.com_SoldLead_1714241234567")
+    const transactionId = `${agentEmail}_${actionType}_${Date.now()}`;
+
+    const payload = {
+      fields: {
+        Title: transactionId, // Using the default Title column we repurposed
+        AgentEmail: agentEmail,
+        ActionType: actionType,
+        PointValue: pointValue,
+        LeadID: leadId,
+      },
+    };
+
+    await apiFetch(url, "POST", payload);
+  }
+
+  async function updateAgentScore(itemId, currentPoints, lifetimePoints) {
+    await resolveSiteIds();
+
+    const url =
+      base +
+      "/sites/" +
+      siteIds.team +
+      "/lists/" +
+      lists.agentScores + // The main bank list
+      "/items/" +
+      itemId +
+      "/fields";
+
+    const payload = {
+      CurrentPoints: currentPoints,
+      LifetimePoints: lifetimePoints,
+    };
+
+    await apiFetch(url, "PATCH", payload);
+  }
+
   // ============================================================
   //  ACTIVITY LOG
   // ============================================================
@@ -580,5 +723,10 @@ const Graph = (() => {
     canAgentTakeLead,
     isInCoolOff,
     agentContactsToday,
+    getAgentScores,
+    createAgentScore,
+    checkLedgerForDuplicate,
+    writeLedgerTransaction,
+    updateAgentScore,
   };
 })();

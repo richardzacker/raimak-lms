@@ -8,6 +8,7 @@ const State = {
   activityLog: [],
   todaySales: [],
   drafts: {},
+  agentScores: [],
   currentView: "dashboard",
   filters: { status: "all", search: "", assignedTo: "all" },
   editingLeadId: null,
@@ -110,7 +111,9 @@ window.addEventListener("DOMContentLoaded", async function () {
     State.currentUser = Auth.getUser();
     State.role = detectRole(State.currentUser);
     showAppShell();
+    Points.initHUDAutoHider();
     await loadAllData();
+    Points.updateHUD();
     renderDashboard();
     Ticker.update();
   } catch (err) {
@@ -122,11 +125,12 @@ window.addEventListener("DOMContentLoaded", async function () {
 async function loadAllData() {
   setLoading(true);
   try {
-    // 1. Fetch the base data (Notice we only call getActivityLogForToday)
+    // 1. Fetch the base data AND the points concurrently!
     const [rawLeads, contractors, todayLogs] = await Promise.all([
       Graph.getLeads(),
       Graph.getContractors(),
       Graph.getActivityLogForToday(),
+      Points.fetchBalances(), // <-- Fires at the exact same time as the others!
     ]);
 
     State.contractors = contractors;
@@ -1743,13 +1747,6 @@ async function agentSaveAll(leadId) {
     // Instantly inject new data into local memory so the Bouncer & Search act immediately
     lead.status = newStatus;
     lead.notes = notes;
-    console.log(lead);
-    console.log(
-      "MRC and Products to inject into the local state:" +
-        mrc +
-        ", " +
-        products,
-    );
     if (mrc) lead.currentMRC = mrc;
     if (products) lead.currentProducts = products;
     if (cbr) lead.cbr = cbr;
@@ -1760,7 +1757,7 @@ async function agentSaveAll(leadId) {
     // Crucial for the Bouncer: update the local callback string!
     lead.callbackAt = rawCallbackDate || null;
     // --------------------------------
-
+    Points.awardPoints(newStatus, leadId);
     if (newStatus === "TDM") {
       if (window.UI && UI.showToast)
         UI.showToast("TDM — lead returned to admin queue.", "info");

@@ -22,6 +22,8 @@ const Config = {
       agentPerformance: "93b94795-ae98-4134-9cbc-c92618856012",
       statePerformance: "9c202207-343c-41af-ae36-bd3797c3f372",
       operationsHealth: "534d595e-521a-4f02-af02-23e5ee427a74",
+      agentScores: "242d56aa-dfcd-4399-919b-0ce608ec932c",
+      agentScoresLedger: "7c6f1604-bd68-4ceb-9f0c-9271faf5e0b8",
     },
     graphBase: "https://graph.microsoft.com/v1.0",
   },

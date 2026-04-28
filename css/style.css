@@ -2599,3 +2599,380 @@ body::before {
     transform: translateX(-100%);
   }
 }
+
+/* ==========================================
+   🎮 FLOATING ECONOMY HUD 🎮
+   ========================================== */
+.economy-hud {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  background: rgba(15, 23, 42, 0.9); /* Sleek dark blue/gray glass */
+  backdrop-filter: blur(10px);
+  padding: 10px 24px 10px 14px;
+  border-radius: 50px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 10px 30px rgba(0, 0, 0, 0.5),
+    0 0 15px rgba(0, 255, 200, 0.1);
+  z-index: 9999; /* Always on top */
+  color: white;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  user-select: none;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.economy-hud.hud-hidden {
+  /* 150% pushes it entirely below the bottom edge of the screen */
+  transform: translate(-50%, 150%);
+}
+
+/* The Level Badge */
+.hud-badge {
+  background: linear-gradient(135deg, #00f2fe 0%, #4facfe 100%);
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.4);
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+.hud-lvl-text {
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 1px;
+  color: rgba(255, 255, 255, 0.9);
+  line-height: 1;
+}
+.hud-lvl-num {
+  font-size: 1.2rem;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* The Progress Bar */
+.hud-progress-wrapper {
+  width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hud-xp-text {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-align: right;
+  letter-spacing: 0.5px;
+}
+.hud-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.hud-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #00c6ff 0%, #0072ff 100%);
+  border-radius: 10px;
+  box-shadow: 0 0 8px rgba(0, 198, 255, 0.6);
+
+  /* Notice we added filter and box-shadow to the transition so the glow fades in and out smoothly! */
+  transition:
+    width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1),
+    filter 0.3s ease,
+    box-shadow 0.3s ease;
+}
+.hud-fill.is-filling {
+  filter: brightness(
+    1.4
+  ); /* Cranks the cyan up to a bright, glowing icy color */
+  box-shadow:
+    0 0 15px rgba(0, 198, 255, 1),
+    0 0 25px rgba(255, 255, 255, 0.4); /* Expands the aura */
+}
+
+/* The Bank Balance */
+.hud-bank {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+}
+#hud-balance {
+  font-size: 1.3rem;
+  font-weight: 800;
+  color: #fbbf24; /* Gold */
+  text-shadow: 0 0 10px rgba(251, 191, 36, 0.3);
+}
+.hud-currency {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* Dopamine Level Up Animation Class (Triggered by JS) */
+.level-up-pulse {
+  animation: levelUpGlow 1.5s ease-out;
+}
+@keyframes levelUpGlow {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 10px rgba(0, 242, 254, 0.4);
+  }
+  50% {
+    transform: scale(1.2);
+    box-shadow:
+      0 0 30px rgba(0, 242, 254, 1),
+      0 0 50px rgba(255, 255, 255, 0.8);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 10px rgba(0, 242, 254, 0.4);
+  }
+}
+.xp-particle {
+  position: fixed;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 10000;
+
+  /* Hardware Acceleration */
+  will-change: transform, opacity, box-shadow, background-color;
+  backface-visibility: hidden;
+
+  /* The smooth, breathing glow is back! */
+  animation: xpStrobe 0.4s infinite alternate ease-in-out;
+}
+
+/* The true neon box-shadow pulse */
+@keyframes xpStrobe {
+  0% {
+    background-color: #00f2fe;
+    box-shadow:
+      0 0 5px #00f2fe,
+      0 0 10px #4facfe;
+  }
+  100% {
+    background-color: #8df5ff;
+    box-shadow:
+      0 0 8px #8df5ff,
+      0 0 18px #00f2fe;
+  }
+}
+
+.floating-xp-text {
+  position: fixed;
+  color: #00f2fe; /* Bright Cyan */
+  font-size: 1.5rem;
+  font-weight: 900;
+  text-shadow:
+    0 0 10px rgba(0, 242, 254, 0.8),
+    2px 2px 2px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  z-index: 10002; /* Right above the HUD */
+
+  /* The animation runs for 1.2s and then stays invisible at the end (forwards) */
+  animation: floatUp 1.2s ease-out forwards;
+}
+
+/* Pops in, floats up 40px, and fades out smoothly */
+@keyframes floatUp {
+  0% {
+    transform: translateY(0) scale(0.5);
+    opacity: 0;
+  }
+  15% {
+    transform: translateY(-10px) scale(1.2);
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-40px) scale(1);
+    opacity: 0;
+  }
+}
+
+/* ==========================================
+   💥 THE COMBO METER 💥
+   ========================================== */
+.hud-combo-container {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  padding-left: 12px;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.2); /* Dull and sleepy at 0 sales */
+  transition: all 0.3s ease;
+  user-select: none;
+}
+
+/* The state JavaScript toggles when they hit at least 1 sale */
+.hud-combo-container.is-hot {
+  color: #ff416c;
+  text-shadow:
+    0 0 10px rgba(255, 65, 108, 0.6),
+    0 0 20px rgba(255, 75, 43, 0.4);
+}
+
+.hud-combo-x {
+  font-size: 0.9rem;
+  font-weight: 800;
+  font-style: italic;
+  transform: skewX(-10deg);
+}
+
+#hud-combo-count {
+  font-size: 1.6rem;
+  font-weight: 900;
+  font-style: italic;
+  line-height: 1;
+  transform: skewX(-10deg);
+  display: inline-block; /* Required for the bump animation to work */
+}
+
+.hud-combo-text {
+  font-size: 0.7rem;
+  font-weight: 900;
+  font-style: italic;
+  letter-spacing: 1px;
+  transform: skewX(-10deg);
+  margin-left: 4px;
+}
+
+/* The aggressive frame-one pop when the number goes up */
+.combo-bump {
+  animation: comboSlam 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes comboSlam {
+  0% {
+    transform: scale(1) skewX(-10deg);
+  }
+  30% {
+    transform: scale(1.6) skewX(-15deg);
+    color: #fff;
+    text-shadow:
+      0 0 30px #ff4b2b,
+      0 0 50px #ff416c;
+  }
+  100% {
+    transform: scale(1) skewX(-10deg);
+  }
+}
+
+.hud-combo-container.on-fire {
+  animation: comboRumble 0.3s infinite linear;
+}
+
+/* The number turns blinding white with a flickering, roaring aura */
+.hud-combo-container.on-fire #hud-combo-count {
+  color: #ffffff;
+  animation: comboFire 0.12s infinite alternate; /* Incredibly fast flicker */
+}
+
+/* 1. The chaotic camera shake */
+@keyframes comboRumble {
+  0% {
+    transform: translate(0, 0);
+  }
+  25% {
+    transform: translate(1px, 1px);
+  }
+  50% {
+    transform: translate(-1px, 0);
+  }
+  75% {
+    transform: translate(0, -1px);
+  }
+  100% {
+    transform: translate(-1px, 1px);
+  }
+}
+
+/* 2. The Golden/Orange flame effect */
+@keyframes comboFire {
+  0% {
+    text-shadow:
+      0 0 10px #fbbf24,
+      0 0 20px #f59e0b,
+      0 -5px 15px #dc2626;
+  }
+  100% {
+    text-shadow:
+      0 0 15px #fef08a,
+      0 0 30px #fbbf24,
+      0 -15px 30px #ea580c;
+  }
+}
+
+/* ==========================================
+   🎊 THE LEVEL UP BANNER 🎊
+   ========================================== */
+.level-up-banner {
+  position: fixed;
+  top: 40%;
+  left: 50%;
+  /* Starts tiny and invisible */
+  transform: translate(-50%, -50%) scale(0.5);
+  opacity: 0;
+  z-index: 10005; /* Above absolutely everything */
+  text-align: center;
+  pointer-events: none; /* Never blocks clicks */
+
+  /* The "Slam" Animation */
+  transition:
+    transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+    opacity 0.4s ease-out;
+
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(12px);
+  padding: 30px 60px;
+  border-radius: 20px;
+  border: 2px solid #fbbf24; /* Gold border */
+  box-shadow:
+    0 0 40px rgba(251, 191, 36, 0.4),
+    inset 0 0 20px rgba(251, 191, 36, 0.2);
+}
+
+/* The state JavaScript toggles to make it appear */
+.level-up-banner.is-active {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+
+.lvl-up-title {
+  font-size: 3rem;
+  font-weight: 900;
+  letter-spacing: 4px;
+  color: #fbbf24; /* Gold */
+  text-shadow:
+    0 0 20px rgba(251, 191, 36, 0.8),
+    2px 2px 0px #000;
+  margin-bottom: 5px;
+  line-height: 1;
+}
+
+.lvl-up-subtitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+  text-shadow: 1px 1px 5px rgba(0, 0, 0, 0.8);
+}
+
+#lvl-up-number {
+  color: #00f2fe; /* Ties back to the XP cyan */
+  font-weight: 900;
+  font-size: 2rem;
+  text-shadow: 0 0 15px rgba(0, 242, 254, 0.8);
+}
