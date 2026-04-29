@@ -107,6 +107,13 @@ const Points = {
     const uniqueSalesToday = new Set();
     const todayString = new Date().toDateString(); // ⚡ Establish Today
 
+    // 🧽 THE FIX: Give the HUD the Universal Name Cleaner too!
+    const cleanName = (str) =>
+      (str || "")
+        .replace(/[^\w\s]/gi, "")
+        .toLowerCase()
+        .trim();
+
     (State.activityLog || []).forEach((log) => {
       // ⚡ Check the date!
       const logDate = new Date(log.timestamp).toDateString();
@@ -120,9 +127,8 @@ const Points = {
         );
 
         if (pastLead) {
-          const isMine =
-            (pastLead.assignedTo || "").toLowerCase().trim() ===
-            myName.toLowerCase().trim();
+          // ⚡ Compare the scrubbed names!
+          const isMine = cleanName(pastLead.assignedTo) === cleanName(myName);
           const isStillSold = pastLead.status === Config.soldStatus;
 
           if (isMine && isStillSold) {
@@ -236,9 +242,13 @@ const Points = {
           );
 
           if (pastLead) {
+            const cleanName = (str) =>
+              (str || "")
+                .replace(/[^\w\s]/gi, "")
+                .toLowerCase()
+                .trim();
             const isMine =
-              (pastLead.assignedTo || "").toLowerCase().trim() ===
-              beneficiaryName.toLowerCase().trim();
+              cleanName(pastLead.assignedTo) === cleanName(beneficiaryName);
             const isStillSold = pastLead.status === Config.soldStatus;
 
             if (isMine && isStillSold) {
