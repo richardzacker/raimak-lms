@@ -105,10 +105,16 @@ const Points = {
     if (!myName) return 0;
 
     const uniqueSalesToday = new Set();
+    const todayString = new Date().toDateString(); // ⚡ Establish Today
 
     (State.activityLog || []).forEach((log) => {
-      // Replicating your existing exact match logic
-      if (log.action === "Status: " + Config.soldStatus) {
+      // ⚡ Check the date!
+      const logDate = new Date(log.timestamp).toDateString();
+
+      if (
+        log.action === "Status: " + Config.soldStatus &&
+        logDate === todayString
+      ) {
         const pastLead = (State.leads || []).find(
           (l) => String(l.id) === String(log.leadId),
         );
@@ -210,27 +216,31 @@ const Points = {
 
     // 🌟 2. THE COMBO COUNTER LOGIC (Upgraded for Toggles & Proxies) 🌟
     if (actionType === Config.soldStatus) {
-      // Use a Set to completely eliminate duplicate toggles on the same lead
       const uniqueSalesToday = new Set();
 
+      // ⚡ Establish exactly what "Today" is
+      const todayString = new Date().toDateString();
+
       (State.activityLog || []).forEach((log) => {
-        // We only care that it was marked Sold today, regardless of WHO clicked it
+        // ⚡ Convert the log's time into a readable string (CHANGE 'log.timestamp' IF NEEDED!)
+        const logDate = new Date(log.timestamp).toDateString();
+
+        // Check if the action is a Sale, it's not the current lead, AND it happened today!
         if (
           log.action === "Status: " + Config.soldStatus &&
-          log.leadId !== leadId
+          log.leadId !== leadId &&
+          logDate === todayString // 🛑 THE MIDNIGHT BOUNCER
         ) {
           const pastLead = (State.leads || []).find(
             (l) => String(l.id) === String(log.leadId),
           );
 
           if (pastLead) {
-            // Check if the BENEFICIARY actually owns this past lead
             const isMine =
               (pastLead.assignedTo || "").toLowerCase().trim() ===
               beneficiaryName.toLowerCase().trim();
             const isStillSold = pastLead.status === Config.soldStatus;
 
-            // Only count it toward the combo if they own it AND it's still officially sold
             if (isMine && isStillSold) {
               uniqueSalesToday.add(log.leadId);
             }
