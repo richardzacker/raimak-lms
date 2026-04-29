@@ -220,54 +220,63 @@ const Points = {
     // Fallback: If we somehow still don't have an email, abort.
     if (!beneficiaryEmail) return false;
 
-    // 🌟 2. THE COMBO COUNTER LOGIC (Upgraded for Toggles & Proxies) 🌟
-    if (actionType === Config.soldStatus) {
-      const uniqueSalesToday = new Set();
+    // 🌟 2. THE COMBO COUNTER LOGIC (Upgraded with Passive Streak Aura) 🌟
 
-      // ⚡ Establish exactly what "Today" is
-      const todayString = new Date().toDateString();
+    // 1. Calculate the current sales streak no matter WHAT action they just took
+    const uniqueSalesToday = new Set();
+    const todayString = new Date().toDateString();
+    const cleanName = (str) =>
+      (str || "")
+        .replace(/[^\w\s]/gi, "")
+        .toLowerCase()
+        .trim();
 
-      (State.activityLog || []).forEach((log) => {
-        // ⚡ Convert the log's time into a readable string (CHANGE 'log.timestamp' IF NEEDED!)
-        const logDate = new Date(log.timestamp).toDateString();
+    (State.activityLog || []).forEach((log) => {
+      const logDate = new Date(log.timestamp).toDateString();
 
-        // Check if the action is a Sale, it's not the current lead, AND it happened today!
-        if (
-          log.action === "Status: " + Config.soldStatus &&
-          log.leadId !== leadId &&
-          logDate === todayString // 🛑 THE MIDNIGHT BOUNCER
-        ) {
-          const pastLead = (State.leads || []).find(
-            (l) => String(l.id) === String(log.leadId),
-          );
+      // We only hunt for SALES in the history, excluding the current lead
+      if (
+        log.action === "Status: " + Config.soldStatus &&
+        log.leadId !== leadId &&
+        logDate === todayString
+      ) {
+        const pastLead = (State.leads || []).find(
+          (l) => String(l.id) === String(log.leadId),
+        );
 
-          if (pastLead) {
-            const cleanName = (str) =>
-              (str || "")
-                .replace(/[^\w\s]/gi, "")
-                .toLowerCase()
-                .trim();
-            const isMine =
-              cleanName(pastLead.assignedTo) === cleanName(beneficiaryName);
-            const isStillSold = pastLead.status === Config.soldStatus;
+        if (pastLead) {
+          const isMine =
+            cleanName(pastLead.assignedTo) === cleanName(beneficiaryName);
+          const isStillSold = pastLead.status === Config.soldStatus;
 
-            if (isMine && isStillSold) {
-              uniqueSalesToday.add(log.leadId);
-            }
+          if (isMine && isStillSold) {
+            uniqueSalesToday.add(log.leadId);
           }
         }
-      });
+      }
+    });
 
-      // The size of the Set is the true number of unique, valid sales today
-      const previousSalesCount = uniqueSalesToday.size;
+    const previousSalesCount = uniqueSalesToday.size;
+
+    // 2. Apply the specific math based on what button they actually clicked
+    if (actionType === Config.soldStatus) {
+      // 💥 MAIN EVENT: The Sales Multiplier
       const comboMultiplier = previousSalesCount + 1;
-
-      // Apply the multiplier to the base reward
       pointValue = pointValue * comboMultiplier;
 
       if (comboMultiplier > 1) {
         console.log(
           `🔥 COMBO x${comboMultiplier}! Reward boosted to ${pointValue} points!`,
+        );
+      }
+    } else {
+      // ⚡ PASSIVE AURA: The Flat Bonus for everything else (+2 XP per past sale)
+      if (previousSalesCount > 0) {
+        const bonusPoints = previousSalesCount * 2;
+        pointValue = pointValue + bonusPoints;
+
+        console.log(
+          `⚡ STREAK BONUS! +${bonusPoints} points added to ${actionType} for your ${previousSalesCount}-sale streak!`,
         );
       }
     }
