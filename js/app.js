@@ -3,6 +3,7 @@ window._isWorkingCallback = false;
 const cachedSkips = sessionStorage.getItem("_skippedSessionLeads");
 window._skippedSessionLeads = cachedSkips ? JSON.parse(cachedSkips) : [];
 const savedSyncDate = localStorage.getItem("RaimakActivityLastSyncDate");
+const savedLeadsSyncDate = localStorage.getItem("RaimakLeadsLastSyncDate");
 
 const State = {
   leads: [],
@@ -138,7 +139,7 @@ async function loadAllData() {
     // 🚀 THE FIX Part 1: We pull the Activity Log OUT of the concurrent race.
     // Leads are heavy, but Contractors and Points are tiny, so they can safely race together!
     const [rawLeads, contractors, pointsData] = await Promise.all([
-      Graph.getLeads().then((data) => {
+      Graph.getLeads(savedLeadsSyncDate, State.leads).then((data) => {
         UI.showToast("✅ Leads synced!", "success");
         return data;
       }),
@@ -640,102 +641,85 @@ function startSalesFeedPolling() {
     }),
   );
 
-  // 1. Wrap the entire fetch and render logic in a named inner function
   async function pollSalesData() {
-    try {
-      // 🚀 1. The Lightweight Delta Sync (Runs silently!)
-      // UPDATED: Swapped highestActivityId for lastSyncDate
-      const logData = await Graph.getActivityLog(
-        State.lastSyncDate,
-        State.activityLog,
-      );
+    if (document.visibilityState === "hidden") return;
 
-      // Update global state with the merged logs and the new timestamp
+    try {
+      // 🚀 1. Background Sync: Keep the data fresh regardless of the view
+      const leadsSyncDate = localStorage.getItem("RaimakLeadsLastSyncDate");
+
+      const [updatedLeads, logData] = await Promise.all([
+        Graph.getLeads(leadsSyncDate, State.leads),
+        Graph.getActivityLog(State.lastSyncDate, State.activityLog),
+      ]);
+
+      // State is updated so the next time they click a tab, the data is current
+      State.leads = updatedLeads;
       State.activityLog = logData.updatedLogs;
-      // UPDATED: Swapped newHighestId for newSyncDate
       State.lastSyncDate = logData.newSyncDate;
 
-      // 🚀 2. In-Memory Math (Zero network requests)
+      // 🚀 2. Process Sales
       const newSales = Graph.getTodaySales(State.activityLog);
-
-      // Update State FIRST so if Ticker.update() relies on it, the data is ready
       State.todaySales = newSales;
 
-      // 3. The Confetti Trigger
-      const newOnes = newSales.filter(function (l) {
-        return !knownSaleIds.has(l.id);
-      });
-
+      // 3. Confetti/Ticker logic (Global triggers)
+      const newOnes = newSales.filter((l) => !knownSaleIds.has(l.id));
       if (newOnes.length > 0) {
-        // Scrubbed the window. prefix!
         if (Ticker && Ticker.update) Ticker.update();
         if (UI && UI.showConfetti) UI.showConfetti();
-
-        newOnes.forEach(function (l) {
-          knownSaleIds.add(l.id);
-        });
+        newOnes.forEach((l) => knownSaleIds.add(l.id));
       }
 
-      // 4. DOM Updates
+      // 🚀 4. EXCLUSIVE UI UPDATE: Only the Dashboard Feed
+      // This avoids the "UI jumping" on the Lead tables or Admin reports
       if (State.currentView === "dashboard") {
-        const feed = document.getElementById("dash-sales-feed");
-        const time = document.getElementById("sales-feed-time");
-
-        if (!feed) return;
-
-        if (time) {
-          time.textContent = "Updated " + formatTime(new Date().toISOString());
-        }
-
-        if (!newSales || !newSales.length) {
-          feed.innerHTML = `<p class="empty-state" style="padding:24px; text-align:center;">No sales yet today.</p>`;
-          return;
-        }
-
-        const nameLookup = {};
-        (State.contractors || []).forEach((c) => {
-          if (c.email) nameLookup[c.email.toLowerCase().trim()] = c.name;
-        });
-
-        function formatAgentName(rawString) {
-          if (!rawString) return "Unassigned";
-          const lower = rawString.toLowerCase().trim();
-          return nameLookup[lower] || rawString;
-        }
-
-        // 🚀 Translated for the Activity Log object structure
-        feed.innerHTML = [...newSales]
-          .sort(function (a, b) {
-            return new Date(b.saleTime) - new Date(a.saleTime);
-          })
-          .slice(0, 6)
-          .map(function (l) {
-            // 1. soldBy already contains the translated name from getTodaySales
-            const displayAgent = l.soldBy || "Unassigned";
-
-            // 2. 'name' is what getTodaySales uses instead of 'leadName'
-            const displayName = l.name || "Unknown Lead";
-
-            return `
-      <div class="sale-entry">
-        <div class="sale-icon">🎉</div>
-        <div class="sale-info">
-          <span class="sale-name">${escHtml(displayName)}</span>
-          <span class="sale-agent">${escHtml(displayAgent)}</span>
-        </div>
-        <span class="sale-time">${formatTime(l.saleTime)}</span>
-      </div>`;
-          })
-          .join("");
+        updateDashboardUI(newSales);
       }
     } catch (e) {
-      console.error("Sales feed polling error:", e);
+      console.error("Sync polling error:", e);
     }
   }
 
-  // 2. THE FIX: Run it immediately right now, THEN start the interval timer
+  // UI update helper stays the same
+  function updateDashboardUI(newSales) {
+    const feed = document.getElementById("dash-sales-feed");
+    const time = document.getElementById("sales-feed-time");
+    if (!feed) return;
+
+    if (time) {
+      time.textContent = "Updated " + formatTime(new Date().toISOString());
+    }
+
+    if (!newSales || !newSales.length) {
+      feed.innerHTML = `<p class="empty-state" style="padding:24px; text-align:center;">No sales yet today.</p>`;
+      return;
+    }
+
+    feed.innerHTML = [...newSales]
+      .sort((a, b) => new Date(b.saleTime) - new Date(a.saleTime))
+      .slice(0, 6)
+      .map(function (l) {
+        const displayAgent = l.soldBy || "Unassigned";
+        const displayName = l.name || "Unknown Lead";
+
+        return `
+          <div class="sale-entry">
+            <div class="sale-icon">🎉</div>
+            <div class="sale-info">
+              <span class="sale-name">${escHtml(displayName)}</span>
+              <span class="sale-agent">${escHtml(displayAgent)}</span>
+            </div>
+            <span class="sale-time">${formatTime(l.saleTime)}</span>
+          </div>`;
+      })
+      .join("");
+  }
+
   pollSalesData();
-  State.salesFeedTimer = setInterval(pollSalesData, Config.salesFeedInterval);
+  State.salesFeedTimer = setInterval(
+    pollSalesData,
+    Config.salesFeedInterval || 60000,
+  );
 }
 
 // ============================================================
@@ -916,159 +900,18 @@ let _leadSaved = false;
 let _currentFeedIndex = 0;
 
 function renderMyLeads() {
-  const user = State.currentUser;
-  const userName = ((user && user.name) || "").toLowerCase().trim();
-  const userEmail = ((user && user.email) || "").toLowerCase().trim();
-
-  const contractor = State.contractors.find((c) => {
-    return (
-      (c.email || "").toLowerCase().trim() === userEmail ||
-      (c.name || "").toLowerCase().trim() === userName
-    );
-  });
-  const agentName = contractor
-    ? contractor.name.toLowerCase().trim()
-    : userName;
-
-  // ==========================================
-  //  THE STRICT BOUNCER
-  // ==========================================
-  let myLeads;
-  if (window._forceShowLead && window._myLeads && window._myLeads.length > 0) {
-    myLeads = window._myLeads;
-  } else {
-    // Otherwise, run the normal filter to build the agent's daily queue
-    myLeads = State.leads.filter((l) => {
-      const assigned = (l.assignedTo || "")
-        .toLowerCase()
-        .replace(/\s+/g, " ")
-        .trim();
-      const matchesAgent =
-        assigned &&
-        (assigned === agentName.replace(/\s+/g, " ") ||
-          assigned === userName.replace(/\s+/g, " ") ||
-          assigned === userEmail.replace(/\s+/g, " "));
-
-      // Bouncer 1: Is it a terminal status?
-      const isTerminal =
-        Config.terminalStatuses.includes(l.status) ||
-        l.status === "3rd Contact";
-
-      // Bouncer 2: Is it in cool-off?
-      const inCoolOff = Graph.isInCoolOff(l);
-
-      // Bouncer 3: The Callback & Install Check
-      let waitingForDate = false;
-      let isDueCallback = false;
-
-      if (l.callbackAt) {
-        // Strip time to compare pure calendar days for BOTH rules
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const scheduledDate = new Date(l.callbackAt);
-        scheduledDate.setHours(0, 0, 0, 0);
-
-        if (l.status === "Pending Order") {
-          // INSTALL RULE: Keep hidden on the day of the install.
-          if (today <= scheduledDate) waitingForDate = true;
-        } else {
-          // CALLBACK RULE: Calendar Day Checking!
-          // Keep it hidden ONLY if the scheduled date is tomorrow or later.
-          // This ensures a 4:30 PM callback is visible immediately at 8:00 AM.
-          if (today < scheduledDate) waitingForDate = true;
-        }
-
-        // If it's today (or overdue), they get the VIP pass to bypass cool-off!
-        if (!waitingForDate) {
-          isDueCallback = true;
-        }
-      }
-
-      // THE ULTIMATE DECISION:
-      // If it's a due callback, it gets a VIP Pass to bypass the cool-off restriction!
-      const passedCoolOff = isDueCallback ? true : !inCoolOff;
-      const isDismissed =
-        window._skippedSessionLeads &&
-        window._skippedSessionLeads.includes(l.id);
-      // ONLY keep actionable, unworked leads that have passed their waiting period!
-      return (
-        matchesAgent &&
-        !isTerminal &&
-        passedCoolOff &&
-        !waitingForDate &&
-        !isDismissed
-      );
-    });
-
-    // ==========================================
-    //  THE SORT: FORCE CALLBACKS TO THE TOP
-    // ==========================================
-    myLeads.sort((a, b) => {
-      const aHasCallback = !!a.callbackAt;
-      const bHasCallback = !!b.callbackAt;
-
-      // Rule 1: Callbacks always rise above standard leads
-      if (aHasCallback && !bHasCallback) return -1;
-      if (!aHasCallback && bHasCallback) return 1;
-
-      // Rule 2: If BOTH are callbacks, sort by exact time (earliest calls first)
-      if (aHasCallback && bHasCallback) {
-        return new Date(a.callbackAt) - new Date(b.callbackAt);
-      }
-
-      // Rule 3: Leave standard leads alone
-      return 0;
-    });
-  }
-
-  // Keep global variables intact
-  window._myLeads = myLeads;
-  window._agentName = agentName;
-  _leadSaved = false;
-
-  if (_currentFeedIndex >= myLeads.length) _currentFeedIndex = 0;
-
-  // We completely deleted the old `while` loop here because the Bouncer
-  // physically removed the cool-off leads from the array!
-
-  window._forceShowLead = false;
-
-  // ==========================================
-  //  THE RENDER LOGIC
-  // ==========================================
-  const mainContent = document.getElementById("main-content");
-  mainContent.innerHTML = "";
-  const contactsToday = getMyContactsToday();
-  const template = document.getElementById("tmpl-my-leads");
-  const clone = template.content.cloneNode(true);
-  const textEl = clone.getElementById("myleads-contact-text");
-  if (textEl) {
-    textEl.textContent = contactsToday;
-  }
-  clone.getElementById("myleads-subtitle").textContent =
-    `// ${myLeads.length} remaining · lead ${Math.min(_currentFeedIndex + 1, myLeads.length || 1)} of ${myLeads.length}`;
-
-  clone.getElementById("lead-feed-wrap").innerHTML = "";
-  clone
-    .getElementById("lead-feed-wrap")
-    .appendChild(renderLeadFeedCard(myLeads));
-
-  mainContent.appendChild(clone);
-
-  // ==========================================
-  //  LIVE CLOCK LOGIC (Smart Timezones)
-  // ==========================================
-  const clockEl = document.getElementById("myleads-clock");
-
-  const activeLead = myLeads[_currentFeedIndex];
-  const leadState =
-    activeLead && activeLead.state
-      ? activeLead.state.toUpperCase().trim()
-      : null;
-
+  if (!_leadSaved) _leadSaved = false;
+  // 🕒 KEEPING THE CLOCK LOGIC AT THE TOP (Local Scope)
   const updateClock = () => {
+    const clockEl = document.getElementById("myleads-clock");
     if (!clockEl) return;
+
+    const activeLead = (window._myLeads || [])[_currentFeedIndex];
+    const leadState =
+      activeLead && activeLead.state
+        ? activeLead.state.toUpperCase().trim()
+        : null;
+
     let tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (leadState && stateTimezones[leadState]) {
       tz = stateTimezones[leadState];
@@ -1090,6 +933,147 @@ function renderMyLeads() {
     }
   };
 
+  const user = State.currentUser;
+  const userName = ((user && user.name) || "").toLowerCase().trim();
+  const userEmail = ((user && user.email) || "").toLowerCase().trim();
+
+  const contractor = State.contractors.find((c) => {
+    return (
+      (c.email || "").toLowerCase().trim() === userEmail ||
+      (c.name || "").toLowerCase().trim() === userName
+    );
+  });
+  const agentName = contractor
+    ? contractor.name.toLowerCase().trim()
+    : userName;
+
+  // ==========================================
+  //  THE STRICT BOUNCER
+  // ==========================================
+  let myLeads;
+  if (window._forceShowLead && window._myLeads && window._myLeads.length > 0) {
+    myLeads = window._myLeads;
+  } else {
+    myLeads = State.leads.filter((l) => {
+      const assigned = (l.assignedTo || "")
+        .toLowerCase()
+        .replace(/\s+/g, " ")
+        .trim();
+      const matchesAgent =
+        assigned &&
+        (assigned === agentName.replace(/\s+/g, " ") ||
+          assigned === userName.replace(/\s+/g, " ") ||
+          assigned === userEmail.replace(/\s+/g, " "));
+
+      // 🛡️ REMOVED "3rd Contact" from terminal so it stays in the queue
+      const isTerminal = Config.terminalStatuses.includes(l.status);
+      const inCoolOff = Graph.isInCoolOff(l);
+
+      let waitingForDate = false;
+      let isDueCallback = false;
+
+      if (l.callbackAt) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const scheduledDate = new Date(l.callbackAt);
+        scheduledDate.setHours(0, 0, 0, 0);
+
+        if (l.status === "Pending Order") {
+          if (today <= scheduledDate) waitingForDate = true;
+        } else {
+          if (today < scheduledDate) waitingForDate = true;
+        }
+        if (!waitingForDate) isDueCallback = true;
+      }
+
+      const passedCoolOff = isDueCallback ? true : !inCoolOff;
+      const isDismissed =
+        window._skippedSessionLeads &&
+        window._skippedSessionLeads.includes(l.id);
+
+      return (
+        matchesAgent &&
+        !isTerminal &&
+        passedCoolOff &&
+        !waitingForDate &&
+        !isDismissed
+      );
+    });
+
+    // ==========================================
+    //  🚀 THE SORT: CALLBACKS > 3RD > 2ND > 1ST
+    // ==========================================
+    const statusPriority = {
+      "3rd Contact": 1,
+      "2nd Contact": 2,
+      "1st Contact": 3,
+    };
+
+    myLeads.sort((a, b) => {
+      const aIsCallback = !!a.callbackAt;
+      const bIsCallback = !!b.callbackAt;
+      if (aIsCallback && !bIsCallback) return -1;
+      if (!aIsCallback && bIsCallback) return 1;
+      if (aIsCallback && bIsCallback)
+        return new Date(a.callbackAt) - new Date(b.callbackAt);
+
+      const aWeight = statusPriority[a.status] || 4;
+      const bWeight = statusPriority[b.status] || 4;
+
+      if (aWeight !== bWeight) {
+        return aWeight - bWeight;
+      }
+
+      // 🚀 THE STABILITY FIX:
+      // If the priority is the same, always sort by ID.
+      // This prevents leads from "shuffling" during background syncs.
+      return a.id.localeCompare(b.id);
+    });
+  }
+
+  window._myLeads = myLeads;
+  window._agentName = agentName;
+  _leadSaved = false;
+  window._forceShowLead = false;
+
+  // ==========================================
+  //  ☕ THE FINISH LINE (No more looping!)
+  // ==========================================
+  const mainContent = document.getElementById("main-content");
+  if (myLeads.length === 0 || _currentFeedIndex >= myLeads.length) {
+    _currentFeedIndex = 0;
+    if (window._clockTimer) clearInterval(window._clockTimer);
+
+    mainContent.innerHTML = `
+      <div class="card" style="text-align:center; padding:60px 20px;">
+        <div style="font-size:4rem; margin-bottom:20px;">☕</div>
+        <h2 class="view-title">Queue Clear!</h2>
+        <p style="color:var(--text-3); margin-bottom:24px;">Worked everything available for now.</p>
+        <button class="btn-primary" onclick="renderMyLeads()">Check for Updates</button>
+      </div>`;
+    return;
+  }
+
+  // ==========================================
+  //  THE RENDER LOGIC
+  // ==========================================
+  mainContent.innerHTML = "";
+  const contactsToday = getMyContactsToday();
+  const template = document.getElementById("tmpl-my-leads");
+  const clone = template.content.cloneNode(true);
+
+  const textEl = clone.getElementById("myleads-contact-text");
+  if (textEl) textEl.textContent = contactsToday;
+
+  clone.getElementById("myleads-subtitle").textContent =
+    `// ${myLeads.length} remaining · lead ${_currentFeedIndex + 1} of ${myLeads.length}`;
+
+  const feedWrap = clone.getElementById("lead-feed-wrap");
+  feedWrap.innerHTML = "";
+  feedWrap.appendChild(renderLeadFeedCard(myLeads));
+  mainContent.appendChild(clone);
+
+  // Restart the local clock
   updateClock();
   if (window._clockTimer) clearInterval(window._clockTimer);
   window._clockTimer = setInterval(updateClock, 1000);
@@ -1691,9 +1675,9 @@ async function agentSaveAll(leadId) {
 
   const newStatus = _stagedStatus || lead.status;
 
-  // Your original edit modal IDs - untouched!
+  // 1. Grab UI Values
   const mrc = (document.getElementById("feed-mrc") || {}).value || "";
-  const products = (document.getElementById("feed-products") || {}).value || "";
+  const products = (document.getElementById("feed-products") || {}).value || ""; // 🚀 Grabbed
   const newNote = (document.getElementById("feed-notes") || {}).value || "";
   const cbr = (document.getElementById("feed-cbr") || {}).value || "";
   const btn = (document.getElementById("feed-btn") || {}).value || "";
@@ -1703,50 +1687,33 @@ async function agentSaveAll(leadId) {
   const autoPay = autoPayEl ? autoPayEl.value : "";
   const soldByEl = document.getElementById("feed-sold-by");
   const soldByName = soldByEl ? soldByEl.value : "";
-
-  // NEW: Grab the universal callback date from the sliding toggle UI
   let rawCallbackDate =
     (document.getElementById("f-callback-date") || {}).value || "";
 
-  // ==========================================
-  // THE INTERCEPT: Prevent Phantom Callbacks
-  // ==========================================
-  if (window._isWorkingCallback) {
-    const wrap = document.getElementById("callback-wrapper");
-    // If they didn't actively schedule a NEW time, scrub the old time out of the variable!
-    if (!wrap || wrap.dataset.manuallyOpened !== "true") {
-      rawCallbackDate = "";
-    }
+  // Validation (Terminal Bypass)
+  const isTerminal = Config.terminalStatuses.includes(newStatus);
+  if (!isTerminal) {
+    if (!autoPay) return UI.showToast("Select AutoPay", "error");
+    if (newStatus === Config.soldStatus && !soldByName)
+      return UI.showToast("Select Sold By", "error");
+    if (!mrc) return UI.showToast("Enter MRC", "error");
+    if (btn.replace(/\D/g, "").length !== 10)
+      return UI.showToast("Valid BTN required", "error");
   }
 
-  // Validation
-  if (!autoPay) {
-    UI.showToast("Please select an AutoPay option before saving.", "error");
-    return;
-  }
-  if (newStatus === Config.soldStatus && !soldByName) {
-    UI.showToast(
-      "Please select who made this sale in the Sold By field.",
-      "error",
-    );
-    return;
-  }
-
-  if (!mrc || mrc.trim() === "") {
-    UI.showToast("Please enter an MRC amount.", "error");
-    return;
-  }
-
-  const cleanBtn = btn.replace(/\D/g, "");
-  if (cleanBtn.length !== 10) {
-    UI.showToast("Please enter a valid 10-digit BTN.", "error");
-    return;
-  }
-
-  const cleanCbr = cbr.replace(/\D/g, "");
-  if (cleanCbr.length !== 10) {
-    UI.showToast("Please enter a valid 10-digit CBR.", "error");
-    return;
+  // Note Stamping
+  let notes = lead.notes || "";
+  if (newNote.trim()) {
+    const today = new Date();
+    const dateStamp =
+      (today.getMonth() + 1).toString().padStart(2, "0") +
+      "/" +
+      today.getDate().toString().padStart(2, "0") +
+      "/" +
+      String(today.getFullYear()).slice(-2);
+    const agentTag = user && user.name ? " - " + user.name : "";
+    const stamped = `[${dateStamp}${agentTag}] ${newStatus} - ${newNote.trim()}`;
+    notes = notes ? stamped + "\n" + notes : stamped;
   }
 
   // Activity Log Email Resolution
@@ -1759,140 +1726,105 @@ async function agentSaveAll(leadId) {
   const activityEmail =
     newStatus === Config.soldStatus ? soldByEmail : (user && user.email) || "";
 
-  // Note Formatting
-  let notes = lead.notes || "";
-  if (newNote.trim()) {
-    const today = new Date();
-    const dateStamp =
-      (today.getMonth() + 1).toString().padStart(2, "0") +
-      "/" +
-      today.getDate().toString().padStart(2, "0") +
-      "/" +
-      String(today.getFullYear()).slice(-2);
-    const agentTag = user && user.name ? " - " + user.name : "";
-    const stamped = "[" + dateStamp + agentTag + "] " + newNote.trim();
-    notes = notes ? stamped + "\n" + notes : stamped;
-  }
-
-  // Setup Payload
+  // 2. Setup Payload for SharePoint
   const todayDate = new Date().toISOString().split("T")[0];
-  const saveFields = { Status: newStatus, LastTouchedOn: todayDate };
+  const saveFields = {
+    Status: newStatus,
+    LastTouchedOn: todayDate,
+    Notes: notes,
+  };
 
   if (mrc) saveFields["MonthlyRecurringCharge_x0028_MRC"] = mrc;
-  if (products) saveFields["CurrentProducts"] = products;
+  if (products) saveFields["CurrentProducts"] = products; // 🚀 ADDED BACK
   if (cbr) saveFields["CBR"] = cbr;
   if (btn) saveFields["BTN"] = btn;
-  if (notes) saveFields["Notes"] = notes;
   if (autoPay) saveFields["AutoPay"] = autoPay;
 
-  // THE MAGIC: Format the callback date for SharePoint
-  if (rawCallbackDate) {
-    // Converts the HTML datetime picker into the exact ISO string SharePoint demands
-    saveFields["CallbackDateTime"] = new Date(rawCallbackDate).toISOString();
-  } else if (newStatus !== "Pending Order") {
-    // Because "Callback" isn't a status, if there is no date, WIPE IT!
-    // (We only spare it if it's a Pending Order, to protect the install date)
-    saveFields["CallbackDateTime"] = null;
-  }
+  saveFields["CallbackDateTime"] = rawCallbackDate
+    ? new Date(rawCallbackDate).toISOString()
+    : newStatus === "Pending Order"
+      ? lead.callbackAt
+      : null;
 
   setLoading(true);
   try {
-    const networkTasks = [
+    const logEntry = {
+      LeadID: leadId,
+      Title: lead.name || "Unknown Lead",
+      ActionType: "Status: " + newStatus,
+      AgentEmail: activityEmail,
+      Notes:
+        notes +
+        (newStatus === Config.soldStatus && soldByName
+          ? ` [Sold by ${soldByName}]`
+          : ""),
+    };
+
+    await Promise.all([
       Graph.updateLead(leadId, saveFields),
-      Graph.logActivity({
-        LeadID: leadId,
-        Title: lead.name,
-        ActionType: "Status: " + newStatus,
-        AgentEmail: activityEmail,
-        Notes:
-          notes +
-          (newStatus === Config.soldStatus &&
-          soldByName &&
-          soldByName !== (user && user.name)
-            ? " [Sold by " +
-              soldByName +
-              ", recorded by " +
-              ((user && user.name) || "admin") +
-              "]"
-            : ""),
-      }),
-    ];
+      Graph.logActivity(logEntry),
+    ]);
 
-    if (newStatus === "TDM") {
-      networkTasks.push(Graph.assignAgent(leadId, ""));
-    }
-
-    // Wait for all network calls to finish simultaneously
-    await Promise.all(networkTasks);
-
+    // 🚀 LOCAL STATE: Fixed leadName mapping
     State.activityLog.push({
+      id: "local-" + Date.now(),
       leadId: leadId,
+      leadName: lead.name || "Unknown Lead", // 🎯 FIXED PROPERTY NAME
       agent: activityEmail,
+      agentEmail: activityEmail,
       action: "Status: " + newStatus,
+      notes: notes,
       timestamp: new Date().toISOString(),
     });
-    delete State.drafts[leadId];
 
-    // --- THE OPTIMISTIC UI UPDATE ---
-    // Instantly inject new data into local memory so the Bouncer & Search act immediately
+    // 3. Update RAM (Optimistic UI)
     lead.status = newStatus;
     lead.notes = notes;
     if (mrc) lead.currentMRC = mrc;
-    if (products) lead.currentProducts = products;
+    if (products) lead.currentProducts = products; // 🚀 ADDED BACK
     if (cbr) lead.cbr = cbr;
     if (btn) lead.btn = btn;
     if (autoPay) lead.autoPay = autoPay;
-    if (newStatus === "TDM") lead.assignedTo = "";
-
-    // Crucial for the Bouncer: update the local callback string!
     lead.callbackAt = rawCallbackDate || null;
-    // --------------------------------
-    Points.awardPoints(newStatus, leadId);
-    if (newStatus === "TDM") {
-      if (window.UI && UI.showToast)
-        UI.showToast("TDM — lead returned to admin queue.", "info");
-    } else {
-      if (window.UI && UI.showToast) UI.showToast("Saved!", "success");
-    }
 
-    // This updates the UI and immediately hides the lead if it's on cool-off
-    Ticker.update();
+    Points.awardPoints(newStatus, leadId);
+    UI.showToast("Saved!", "success");
+
+    // UI State
     _stagedStatus = null;
     _leadSaved = true;
 
-    const nextRow = document.getElementById("feed-next-row");
-    const searchSec = document.getElementById("lead-search-section");
+    // Update Save Button
     const saveBtn = document.getElementById("feed-save-btn");
-
-    if (nextRow) {
-      nextRow.style.display = "block";
-      const nextBtn = nextRow.querySelector("button");
-
-      if (nextBtn && window._isWorkingCallback) {
-        window._isWorkingCallback = false;
-        window._forceShowLead = false;
-        nextBtn.innerHTML = "Complete Callback ✓";
-        nextBtn.classList.remove("btn-cyan");
-        nextBtn.classList.add("btn-green");
-
-        // 2. Point the click action to our new completion function
-        nextBtn.onclick = () => completeCallbackLead(lead.id);
-      }
-    }
-    if (searchSec) searchSec.style.display = "block";
     if (saveBtn) {
       saveBtn.textContent = "Saved ✓";
       saveBtn.disabled = true;
       saveBtn.style.background = "var(--green)";
-      setTimeout(() => {
-        saveBtn.textContent = "Save";
-        saveBtn.disabled = false;
-        saveBtn.style.background = "";
-      }, 2000);
     }
+
+    // Show Next Row
+    const nextRow = document.getElementById("feed-next-row");
+    if (nextRow) {
+      nextRow.style.display = "block";
+      const nextBtn = nextRow.querySelector("button");
+      if (nextBtn) {
+        if (window._isWorkingCallback) {
+          nextBtn.innerHTML = "Complete Callback ✓";
+          nextBtn.classList.replace("btn-cyan", "btn-green");
+          nextBtn.onclick = () => {
+            window._isWorkingCallback = false;
+            completeCallbackLead(leadId);
+          };
+        } else {
+          nextBtn.onclick = () => advanceToNextLead();
+        }
+      }
+    }
+
+    if (Ticker && Ticker.update) Ticker.update();
   } catch (err) {
-    if (window.UI && UI.showToast)
-      UI.showToast("Failed: " + err.message, "error");
+    console.error("Save Error:", err);
+    UI.showToast("Failed to save: " + err.message, "error");
   } finally {
     setLoading(false);
   }
@@ -3255,7 +3187,6 @@ async function uploadLeadsToSharePoint(csvData, leadType) {
   // 🛡️ 1. THE IN-MEMORY BOUNCER (Deduplication)
   // ==========================================
   const generateKey = (first, last, address) => {
-    // The exact same sponge used for the combo multiplier!
     const clean = (str) =>
       (str || "")
         .replace(/[^\w\s]/gi, "")
@@ -3265,10 +3196,7 @@ async function uploadLeadsToSharePoint(csvData, leadType) {
   };
 
   const existingKeys = new Set();
-
-  // A. Log all existing leads into the Bouncer's ledger
   (State.leads || []).forEach((lead) => {
-    // Make sure these match the properties returned by your normalizeLeadItem function
     const key = generateKey(lead.firstName, lead.lastName, lead.address);
     existingKeys.add(key);
   });
@@ -3276,36 +3204,30 @@ async function uploadLeadsToSharePoint(csvData, leadType) {
   const validLeads = [];
   let duplicateCount = 0;
 
-  // B. Scan the incoming CSV against the ledger
   csvData.forEach((row) => {
     const key = generateKey(
       row["FirstName"],
       row["LastName"],
       row["StreetAddress"],
     );
-
     if (existingKeys.has(key)) {
-      duplicateCount++; // Blocked!
+      duplicateCount++;
     } else {
-      validLeads.push(row); // Allowed!
-      existingKeys.add(key); // Add to ledger to prevent duplicates WITHIN the CSV itself
+      validLeads.push(row);
+      existingKeys.add(key);
     }
   });
 
   const totalLeads = validLeads.length;
 
-  // C. Safety Check: Did the Bouncer block everything?
   if (totalLeads === 0) {
     UI.showToast(
-      `❌ Upload aborted: All ${csvData.length} leads in the file are already in the system.`,
+      `❌ Upload aborted: All ${csvData.length} leads are already in the system.`,
       "error",
     );
     return;
   }
 
-  console.log(
-    `🚀 BATCH UPLOAD: ${totalLeads} valid leads... (${duplicateCount} duplicates skipped)`,
-  );
   UI.showToast(
     `🚀 Starting batch upload of ${totalLeads} leads... (Skipped ${duplicateCount} duplicates)`,
     "info",
@@ -3338,13 +3260,12 @@ async function uploadLeadsToSharePoint(csvData, leadType) {
   // 📦 4. THE BATCHING ENGINE
   // ==========================================
   for (let i = 0; i < totalLeads; i += batchSize) {
-    // Chunking the cleaned validLeads array
     const chunk = validLeads.slice(i, i + batchSize);
-
     const currentBatchNum = Math.ceil(i / batchSize) + 1;
     const totalBatches = Math.ceil(totalLeads / batchSize);
+
     if (importBtn) {
-      importBtn.innerHTML = `⏳ Uploading Batch ${currentBatchNum} of ${totalBatches}... (${i} leads saved)`;
+      importBtn.innerHTML = `⏳ Batch ${currentBatchNum}/${totalBatches}... (${i} saved)`;
     }
 
     const batchRequests = chunk.map((row, index) => {
@@ -3369,10 +3290,12 @@ async function uploadLeadsToSharePoint(csvData, leadType) {
       };
     });
 
-    const payload = { requests: batchRequests };
-
     try {
-      const batchResponse = await Graph.apiFetch(batchUrl, "POST", payload);
+      // 🚀 THE UPGRADE: Aligning with the new apiFetch options object
+      const batchResponse = await Graph.apiFetch(batchUrl, {
+        method: "POST",
+        body: { requests: batchRequests },
+      });
 
       if (batchResponse && batchResponse.responses) {
         batchResponse.responses.forEach((res) => {
@@ -3385,18 +3308,13 @@ async function uploadLeadsToSharePoint(csvData, leadType) {
         });
       }
     } catch (error) {
-      console.error("❌ Entire batch failed due to network error:", error);
+      console.error("❌ Entire batch failed:", error);
       failCount += chunk.length;
-      UI.showToast(
-        `⚠️ Network error on batch ${currentBatchNum}. Pausing...`,
-        "error",
-      );
+      UI.showToast(`⚠️ Network error on batch ${currentBatchNum}.`, "error");
     }
   }
 
-  // ==========================================
   // ✅ 5. RESTORE THE UI & REPORT
-  // ==========================================
   if (importBtn) {
     importBtn.disabled = false;
     importBtn.style.cursor = "pointer";
@@ -3404,22 +3322,14 @@ async function uploadLeadsToSharePoint(csvData, leadType) {
   }
 
   if (failCount === 0) {
+    UI.showToast(`✅ Upload complete! ${successCount} leads added.`, "success");
+  } else {
     UI.showToast(
-      `✅ Upload complete! ${successCount} leads added. (Skipped ${duplicateCount} duplicates)`,
-      "success",
-    );
-  } else if (successCount > 0 && failCount > 0) {
-    UI.showToast(
-      `⚠️ Upload finished: ${successCount} added, ${failCount} failed. (Skipped ${duplicateCount} duplicates)`,
+      `⚠️ Finished: ${successCount} added, ${failCount} failed.`,
       "warning",
     );
-  } else {
-    UI.showToast(`❌ Upload failed. 0 leads were added.`, "error");
   }
 
-  // ==========================================
-  // 🔄 6. RELOAD DATA
-  // ==========================================
   await loadAllData();
 }
 // ============================================================
@@ -3430,9 +3340,24 @@ async function renderDailyReport() {
     navigate("myleads");
     return;
   }
+
+  // 🎨 HELPER: Generates the "Stoplight" color shift
+  function getDynamicColor(contacts) {
+    let hue = 0;
+    if (contacts <= 25) {
+      hue = (contacts / 25) * 60; // Red to Yellow
+    } else if (contacts <= 50) {
+      hue = 60 + ((contacts - 25) / 25) * 60; // Yellow to Green
+    } else {
+      hue = 120; // Goal Green
+    }
+    return `hsl(${hue}, 80%, 45%)`;
+  }
+
   document.getElementById("main-content").innerHTML = `
     <div class="view-header"><h1 class="view-title">Daily Report</h1></div>
     <div class="card"><div class="empty-state" style="padding:40px">Loading report...</div></div>`;
+
   try {
     const stats = await Graph.getDailyStats();
     const today = new Date().toLocaleDateString("en-GB", {
@@ -3441,6 +3366,7 @@ async function renderDailyReport() {
       month: "long",
       day: "numeric",
     });
+
     document.getElementById("main-content").innerHTML = `
       <div class="view-header">
         <div>
@@ -3449,51 +3375,73 @@ async function renderDailyReport() {
         </div>
         <button class="btn-ghost" onclick="exportReportCSV()">Export CSV</button>
       </div>
+
       <div class="kpi-grid">
-        <div class="kpi-card kpi-primary"><span class="kpi-label">Total Contacts Today</span><span class="kpi-value">${stats.reduce(
-          function (s, a) {
-            return s + a.contacts;
-          },
-          0,
-        )}</span></div>
-        <div class="kpi-card kpi-success"><span class="kpi-label">Total Sales Today</span><span class="kpi-value">${State.todaySales.length}</span></div>
-        <div class="kpi-card kpi-info"><span class="kpi-label">Active Agents</span><span class="kpi-value">${stats.length}</span></div>
-        <div class="kpi-card kpi-neutral"><span class="kpi-label">Avg Contacts/Agent</span><span class="kpi-value">${
-          stats.length
-            ? Math.round(
-                stats.reduce(function (s, a) {
-                  return s + a.contacts;
-                }, 0) / stats.length,
-              )
-            : 0
-        }</span></div>
+        <div class="kpi-card kpi-primary">
+          <span class="kpi-label">Total Contacts Today</span>
+          <span class="kpi-value">${stats.reduce((s, a) => s + a.contacts, 0)}</span>
+        </div>
+        <div class="kpi-card kpi-success">
+          <span class="kpi-label">Total Sales Today</span>
+          <span class="kpi-value">${State.todaySales.length}</span>
+        </div>
+        <div class="kpi-card kpi-info">
+          <span class="kpi-label">Active Agents</span>
+          <span class="kpi-value">${stats.length}</span>
+        </div>
+        <div class="kpi-card kpi-neutral">
+          <span class="kpi-label">Avg Contacts/Agent</span>
+          <span class="kpi-value">${
+            stats.length
+              ? Math.round(
+                  stats.reduce((s, a) => s + a.contacts, 0) / stats.length,
+                )
+              : 0
+          }</span>
+        </div>
       </div>
+
       <div class="card">
         <div class="card-header"><h2 class="card-title">Agent Breakdown</h2></div>
         <div class="table-wrap">
           <table class="data-table">
-            <thead><tr><th>Agent</th><th>Contacts Today</th><th>Sales Today</th><th>Limit</th><th>Last Action</th></tr></thead>
+            <thead>
+              <tr>
+                <th>Agent</th>
+                <th style="text-align:center;">Contacts</th>
+                <th style="text-align:center;">Sales</th>
+                <th style="text-align:center;">Avg. Contact Time</th>
+                <th style="text-align:right;">Last Action</th>
+              </tr>
+            </thead>
             <tbody>
               ${
                 stats.length
                   ? stats
                       .map(function (a) {
-                        const pct = Math.round(
-                          (a.contacts / Config.rules.maxContactsPerDay) * 100,
-                        );
-                        const last = a.actions.length ? a.actions[0] : null;
+                        // Sort actions to find the most recent one
+                        const last = a.actions.length
+                          ? a.actions.sort(
+                              (x, y) =>
+                                new Date(y.timestamp) - new Date(x.timestamp),
+                            )[0]
+                          : null;
+
+                        const statusColor = getDynamicColor(a.contacts);
+
                         return `<tr>
-                  <td><span class="lead-name">${escHtml(a.agent)}</span></td>
-                  <td>
-                    <div style="display:flex;align-items:center;gap:10px">
-                      <span class="td-mono">${a.contacts}</span>
-                      <div class="load-bar-wrap" style="flex:1;max-width:80px"><div class="load-bar ${pct >= 100 ? "load-full" : pct >= 80 ? "load-high" : ""}" style="width:${Math.min(100, pct)}%"></div></div>
-                    </div>
-                  </td>
-                  <td><span class="status-badge status-sold">${a.sold}</span></td>
-                  <td class="td-mono">${a.contacts}/${Config.rules.maxContactsPerDay}</td>
-                  <td class="td-mono" style="color:var(--text-3)">${last ? formatDateTime(last.timestamp) : "—"}</td>
-                </tr>`;
+                        <td><span class="lead-name" style="font-weight:600;">${escHtml(a.agent)}</span></td>
+                        <td style="text-align:center;">
+                          <span class="td-mono" style="color:${statusColor}; font-size:1.1rem; font-weight:800;">${a.contacts}</span>
+                        </td>
+                        <td style="text-align:center;">
+                          <span class="status-badge status-sold" style="font-weight:700; padding: 4px 12px;">${a.sold}</span>
+                        </td>
+                        <td style="text-align:center;" class="td-mono">${a.avgTime || "—"}</td>
+                        <td style="text-align:right;" class="td-mono">
+                          <span style="color:var(--text-3); font-size: 0.85rem;">${last ? formatDateTime(last.timestamp) : "—"}</span>
+                        </td>
+                      </tr>`;
                       })
                       .join("")
                   : `<tr><td colspan="5" class="empty-state">No activity today yet.</td></tr>`
@@ -3502,9 +3450,11 @@ async function renderDailyReport() {
           </table>
         </div>
       </div>`;
+
     window._reportStats = stats;
   } catch (err) {
     UI.showToast("Failed to load report: " + err.message, "error");
+    console.error(err);
   }
 }
 
@@ -4189,15 +4139,12 @@ function updateBadges() {
 }
 
 async function exportD2DLeads() {
-  // Set up our diagnostic counters
   let workedBy1 = 0;
   let workedBy2 = 0;
   let workedBy3Plus = 0;
 
-  // 1. Filter the master list
   const d2dLeads = (State.leads || []).filter((l) => {
     let count = 0;
-
     if (Array.isArray(l.previousAgents)) {
       count = l.previousAgents.length;
     } else if (typeof l.previousAgents === "string") {
@@ -4213,26 +4160,15 @@ async function exportD2DLeads() {
     else if (count === 2) workedBy2++;
     else if (count >= 3) workedBy3Plus++;
 
-    // 🛡️ THE NEW SAFEGUARD: Check if the lead is currently unassigned
-    // (Note: If your database uses "agent" or "assignedAgent" instead of "assignedTo", just swap the name below!)
     const isUnassigned = !l.assignedTo || l.assignedTo.trim() === "";
-
-    // Return true ONLY if they have 2+ touches AND are currently unassigned
     return count >= 3 && isUnassigned;
   });
-
-  console.log("--- D2D AGENT TOUCH COUNTS ---");
-  console.log(`Leads worked by exactly 1 agent: ${workedBy1}`);
-  console.log(`Leads worked by exactly 2 agents: ${workedBy2}`);
-  console.log(`Leads worked by 3+ agents: ${workedBy3Plus}`);
-  console.log("------------------------------");
 
   if (d2dLeads.length === 0) {
     UI.showToast("No leads meet the criteria for D2D export.", "warning");
     return;
   }
 
-  // 2. Set up the exact requested headers
   const headers = [
     "First Name",
     "Last Name",
@@ -4244,8 +4180,6 @@ async function exportD2DLeads() {
     "currentMRC",
     "currentProducts",
   ];
-
-  // 3. Map the data
   const rows = d2dLeads.map((l) => {
     const firstName = l.firstName || "";
     const lastName = l.lastName || "";
@@ -4256,11 +4190,9 @@ async function exportD2DLeads() {
     const cbr = l.CBR || l.cbr || l.altPhone || "";
     const mrc = l.currentMRC || l.mrc || "";
     const products = l.currentProducts || l.products || "";
-
     return `"${firstName}","${lastName}","${address}","${city}","${state}","${btn}","${cbr}","${mrc}","${products}"`;
   });
 
-  // 4. Build & Trigger CSV Download
   const csvContent = headers.join(",") + "\n" + rows.join("\n");
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
@@ -4270,21 +4202,16 @@ async function exportD2DLeads() {
     "download",
     `D2D_Export_${new Date().toLocaleDateString().replace(/\//g, "-")}.csv`,
   );
-
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 
-  // 🔔 Notify the user that the file downloaded and the database is updating
   UI.showToast(
     `📁 File downloaded! Moving ${d2dLeads.length} leads to D2D status...`,
     "info",
   );
 
-  // ==========================================
-  // 🚀 5. THE GRAPH API BATCH UPDATER
-  // ==========================================
   const host = Config.sharePoint.hostname;
   const sitePath = Config.sharePoint.sites.team;
   const listId = Config.sharePoint.lists.leadsList;
@@ -4299,32 +4226,33 @@ async function exportD2DLeads() {
     const batchRequests = chunk.map((lead, index) => {
       return {
         id: String(index + 1),
-        method: "PATCH", // 🎯 PATCH updates an existing item without overwriting other columns
-        url: `/sites/${host}:/${sitePath}:/lists/${listId}/items/${lead.id}`, // Notice we target the specific lead.id here
+        method: "PATCH",
+        url: `/sites/${host}:/${sitePath}:/lists/${listId}/items/${lead.id}`,
         headers: { "Content-Type": "application/json" },
         body: {
           fields: {
-            Status: "D2D Lead", // 🎯 The terminal status update
+            Status: "D2D Lead",
           },
         },
       };
     });
 
     try {
-      await Graph.apiFetch(batchUrl, "POST", { requests: batchRequests });
+      // 🚀 THE UPGRADE: Moving the batch call to the options object pattern
+      await Graph.apiFetch(batchUrl, {
+        method: "POST",
+        body: { requests: batchRequests },
+      });
       updateCount += chunk.length;
     } catch (error) {
       console.error("❌ Batch update failed:", error);
     }
   }
 
-  // 6. Final success message and UI refresh!
   UI.showToast(
     `✅ Successfully locked ${updateCount} leads as D2D!`,
     "success",
   );
-
-  // Reloading the data applies your new filter, instantly wiping them off the screen
   await loadAllData();
 }
 

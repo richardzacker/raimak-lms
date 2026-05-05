@@ -8,7 +8,8 @@ const Graph = (() => {
   let agentCache = null;
 
   // ── Generic Fetch ──────────────────────────────────────────
-  async function apiFetch(url, method = "GET", body = null, maxRetries = 3) {
+  async function apiFetch(url, options = {}) {
+    // 1. Auth Check
     const token = await Auth.getToken();
     if (!token) {
       console.warn("No auth token available — redirecting to sign in.");
@@ -16,17 +17,35 @@ const Graph = (() => {
       return null;
     }
 
-    const opts = {
-      method,
-      headers: {
-        Authorization: "Bearer " + token,
-        "Content-Type": "application/json",
-      },
+    // 2. Setup Default Headers & Merge Custom Ones
+    const headers = {
+      Authorization: "Bearer " + token,
+      "Content-Type": "application/json",
+      // 🚀 THE PREFERENCE HEADER: Tells SharePoint to try harder on large lists
+      // Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly",
+      ...options.headers, // This allows updateLead to inject "If-Match": "*"
     };
-    if (body) opts.body = JSON.stringify(body);
 
+    // 3. Prepare Fetch Options
+    const method = options.method || "GET";
+    const fetchOpts = {
+      method: method,
+      headers: headers,
+    };
+
+    // If a body was passed, ensure it is stringified
+    if (options.body) {
+      fetchOpts.body =
+        typeof options.body === "string"
+          ? options.body
+          : JSON.stringify(options.body);
+    }
+
+    const maxRetries = options.maxRetries || 3;
+
+    // 4. Execution Loop with Retry Logic
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      const res = await fetch(url, opts);
+      const res = await fetch(url, fetchOpts);
 
       if (res.ok) {
         if (res.status === 204) return null;
@@ -35,23 +54,19 @@ const Graph = (() => {
 
       // Intercept 429 Throttling
       if (res.status === 429) {
-        // Microsoft provides the wait time in seconds.
-        // If missing, we use exponential backoff (2s, 4s, 8s...)
         const retryAfterStr = res.headers.get("Retry-After");
         const waitMs = retryAfterStr
           ? parseInt(retryAfterStr) * 1000
-          : 2 ** attempt * 1000;
+          : Math.pow(2, attempt) * 1000;
 
         console.warn(
           `Graph API Throttled! Pausing for ${waitMs}ms (Attempt ${attempt} of ${maxRetries})`,
         );
-
-        // Pause execution without freezing the browser
         await new Promise((resolve) => setTimeout(resolve, waitMs));
-        continue; // Loop restarts and tries the fetch again
+        continue;
       }
 
-      // If it's a different error (401, 404, etc.), throw it normally
+      // Handle other errors
       const err = await res.json().catch(() => ({}));
       throw new Error((err.error && err.error.message) || "HTTP " + res.status);
     }
@@ -62,14 +77,30 @@ const Graph = (() => {
   // ── Resolve Site IDs ───────────────────────────────────────
   async function resolveSiteIds() {
     if (siteIds.leadship && siteIds.team) return;
-    const [s1, s2] = await Promise.all([
-      apiFetch(
-        base + "/sites/" + host + ":/" + Config.sharePoint.sites.leadship,
-      ),
-      apiFetch(base + "/sites/" + host + ":/" + Config.sharePoint.sites.team),
-    ]);
-    siteIds.leadship = s1.id;
-    siteIds.team = s2.id;
+
+    try {
+      const [s1, s2] = await Promise.all([
+        // 🚀 Pattern Shift: Passing an empty object or { method: "GET" }
+        // ensures it hits the upgraded apiFetch signature correctly.
+        apiFetch(
+          base + "/sites/" + host + ":/" + Config.sharePoint.sites.leadship,
+          { method: "GET" },
+        ),
+        apiFetch(
+          base + "/sites/" + host + ":/" + Config.sharePoint.sites.team,
+          { method: "GET" },
+        ),
+      ]);
+
+      siteIds.leadship = s1.id;
+      siteIds.team = s2.id;
+    } catch (err) {
+      console.error(
+        "Critical Error: Could not resolve SharePoint Site IDs.",
+        err,
+      );
+      throw err;
+    }
   }
 
   // ── Build Agent ID Cache ───────────────────────────────────
@@ -109,14 +140,14 @@ const Graph = (() => {
 
   // ── Paginate ───────────────────────────────────────────────
   async function getAllItems(url) {
-    const items = []; // Changed to const since we are mutating it instead of reassigning
+    const items = [];
     let next = url;
 
     try {
       while (next) {
-        const data = await apiFetch(next);
+        // 🚀 Pattern Shift: Explicitly passing the method in an options object
+        const data = await apiFetch(next, { method: "GET" });
 
-        // 🚀 Push spreads the new items directly into our existing array
         if (data && data.value) {
           items.push(...data.value);
         }
@@ -124,46 +155,87 @@ const Graph = (() => {
         next = data["@odata.nextLink"] || null;
       }
     } catch (error) {
-      // 🛡️ The Safety Net: Logs the exact page that failed but doesn't kill the app
       console.error("❌ Pagination failed on URL:", next, error);
       if (window.UI && UI.showToast) {
         UI.showToast("Network interrupted. Partial data loaded.", "warning");
       }
     }
 
-    return items; // Returns whatever it managed to grab!
+    return items;
   }
 
   // ============================================================
   //  LEADS
   // ============================================================
 
-  async function getLeads() {
+  async function getLeads(lastSyncDate = null, existingLeads = []) {
     await resolveSiteIds();
 
-    // 🚀 TWEAK 2: The Payload Diet (Uncomment and add your exact column names!)
-    // const selectedFields = "Title,FirstName,LastName,Status,BTN,CBR,currentMRC,assignedTo";
-    // const expandQuery = `expand=fields($select=${selectedFields})`;
+    // 🚀 STEP 1: If RAM is empty (F5 refresh), load from IndexedDB instantly
+    if (!existingLeads || existingLeads.length === 0) {
+      existingLeads = await LocalDB.getAllItems("leads");
 
-    // If you don't want to list out the fields yet, just keep your original expand=fields
+      // Apply your business rules to the cached data immediately
+      existingLeads = existingLeads.filter(
+        (lead) => lead.status !== "D2D Lead" && lead.status !== "TDM Non-Reg",
+      );
+    }
+
     const expandQuery = "expand=fields";
-
-    const url =
+    let url =
       base +
       "/sites/" +
       siteIds.team +
       "/lists/" +
       lists.leadsList +
-      `/items?${expandQuery}&$select=id,lastModifiedDateTime,createdDateTime&$top=5000`; // 🚀 TWEAK 1: Maximize the batch size
+      `/items?${expandQuery}&$select=id,lastModifiedDateTime,createdDateTime&$top=5000`;
+
+    // 🚀 STEP 2: The Delta Filter (Modified vs Created)
+    if (lastSyncDate && typeof lastSyncDate === "string") {
+      const safeDate = lastSyncDate.split(".")[0] + "Z";
+      url += `&$filter=fields/Modified gt '${safeDate}'`;
+    }
 
     const raw = await getAllItems(url);
 
-    // Remember, we added this client-side filter earlier to hide the D2D leads!
-    return raw
-      .map(normalizeLeadItem)
-      .filter(
-        (lead) => lead.status !== "D2D Lead" && lead.status !== "TDM Non-Reg",
-      );
+    // If no new/modified leads, just return what we already have
+    if (raw.length === 0) {
+      return existingLeads;
+    }
+
+    // 🚀 STEP 3: Normalize the new/updated leads
+    const updatedBatch = raw.map(normalizeLeadItem);
+
+    // 🚀 STEP 4: Save to IndexedDB (Upsert)
+    // IndexedDB will automatically overwrite old versions of these leads
+    // because they share the same 'id' primary key.
+    await LocalDB.saveItems("leads", updatedBatch);
+
+    // 🚀 STEP 5: Smart Merge for the UI
+    // We turn the existing list into a Map for O(1) lookups
+    const leadMap = new Map();
+    existingLeads.forEach((l) => leadMap.set(l.id, l));
+
+    // Add or Replace with the updated data
+    updatedBatch.forEach((l) => leadMap.set(l.id, l));
+
+    // Convert back to array and re-apply filters (in case a status changed to D2D)
+    const finalizedLeads = Array.from(leadMap.values()).filter(
+      (lead) => lead.status !== "D2D Lead" && lead.status !== "TDM Non-Reg",
+    );
+
+    // 🚀 STEP 6: Update the Leads Sync Date
+    const validTimestamps = updatedBatch
+      .map((l) => new Date(l.modified || l.lastModifiedDateTime).getTime())
+      .filter((t) => !isNaN(t));
+
+    if (validTimestamps.length > 0) {
+      const maxTime = Math.max(...validTimestamps);
+      const newSyncDate = new Date(maxTime).toISOString();
+      localStorage.setItem("RaimakLeadsLastSyncDate", newSyncDate);
+    }
+
+    return finalizedLeads;
   }
 
   async function getNextLeadForAgent(agentEmail) {
@@ -188,12 +260,18 @@ const Graph = (() => {
     await resolveSiteIds();
     const url =
       base + "/sites/" + siteIds.team + "/lists/" + lists.leadsList + "/items";
-    const res = await apiFetch(url, "POST", { fields });
+
+    const res = await apiFetch(url, {
+      method: "POST",
+      body: { fields },
+    });
+
     return normalizeLeadItem(res);
   }
 
   async function updateLead(itemId, fields) {
     await resolveSiteIds();
+
     const url =
       base +
       "/sites/" +
@@ -203,7 +281,21 @@ const Graph = (() => {
       "/items/" +
       itemId +
       "/fields";
-    await apiFetch(url, "PATCH", fields);
+
+    // 🚀 THE FIX: We package the request into an options object
+    // This allows us to pass the specific header needed to kill 409 errors.
+    const options = {
+      method: "PATCH",
+      body: JSON.stringify(fields),
+      headers: {
+        "Content-Type": "application/json",
+        // 🛡️ THE NUCLEAR OPTION:
+        // Tells SharePoint "Overwrite this no matter what version is on the server."
+        "If-Match": "*",
+      },
+    };
+
+    return await apiFetch(url, options);
   }
 
   async function deleteLead(itemId) {
@@ -216,7 +308,14 @@ const Graph = (() => {
       lists.leadsList +
       "/items/" +
       itemId;
-    await apiFetch(url, "DELETE");
+
+    // 🚀 Pattern Shift: Using the options object with If-Match to prevent version conflicts
+    await apiFetch(url, {
+      method: "DELETE",
+      headers: {
+        "If-Match": "*",
+      },
+    });
   }
 
   function normalizeLeadItem(item) {
@@ -335,9 +434,12 @@ const Graph = (() => {
       },
     };
 
-    const res = await apiFetch(url, "POST", payload);
+    // 🚀 Pattern Shift: Using the options object for the POST request
+    const res = await apiFetch(url, {
+      method: "POST",
+      body: payload,
+    });
 
-    // Return a clean object formatted exactly like getAgentScores does
     return {
       id: res.id,
       AgentEmail: email,
@@ -352,27 +454,25 @@ const Graph = (() => {
 
     await resolveSiteIds();
 
-    // We use the OData $filter parameter to ask SharePoint to only return exact matches.
-    // Because you indexed these columns, this query will execute in milliseconds.
     const url =
       base +
       "/sites/" +
       siteIds.team +
       "/lists/" +
-      lists.agentScoresLedger + // <-- Using your new config variable!
+      lists.agentScoresLedger +
       `/items?$expand=fields&$filter=fields/LeadID eq '${leadId}' and fields/ActionType eq '${actionType}'`;
 
     try {
-      const res = await apiFetch(url);
+      // 🚀 Pattern Shift: Using the options object for the GET request
+      const res = await apiFetch(url, { method: "GET" });
 
-      // If the array has anything in it, a receipt already exists. Return true (Duplicate found!)
       if (res && res.value && res.value.length > 0) {
         return true;
       }
-      return false; // Array is empty, the action is fresh!
+      return false;
     } catch (err) {
       console.error("Ledger Check Error:", err);
-      // Fail safely: if the check crashes, assume it's a duplicate so we don't accidentally give out infinite money.
+      // Safe-fail: Assume duplicate if check fails to prevent double-point awarding
       return true;
     }
   }
@@ -394,12 +494,12 @@ const Graph = (() => {
       lists.agentScoresLedger +
       "/items";
 
-    // Generate a unique transaction ID (e.g., "jdoe@email.com_SoldLead_1714241234567")
+    // Generate a unique transaction ID
     const transactionId = `${agentEmail}_${actionType}_${Date.now()}`;
 
     const payload = {
       fields: {
-        Title: transactionId, // Using the default Title column we repurposed
+        Title: transactionId,
         AgentEmail: agentEmail,
         ActionType: actionType,
         PointValue: pointValue,
@@ -407,7 +507,11 @@ const Graph = (() => {
       },
     };
 
-    await apiFetch(url, "POST", payload);
+    // 🚀 Pattern Shift: Using the options object for the POST request
+    await apiFetch(url, {
+      method: "POST",
+      body: payload,
+    });
   }
 
   async function updateAgentScore(itemId, currentPoints, lifetimePoints) {
@@ -418,7 +522,7 @@ const Graph = (() => {
       "/sites/" +
       siteIds.team +
       "/lists/" +
-      lists.agentScores + // The main bank list
+      lists.agentScores +
       "/items/" +
       itemId +
       "/fields";
@@ -428,7 +532,14 @@ const Graph = (() => {
       LifetimePoints: lifetimePoints,
     };
 
-    await apiFetch(url, "PATCH", payload);
+    // 🚀 Pattern Shift: Using the options object with If-Match to prevent score conflicts
+    await apiFetch(url, {
+      method: "PATCH",
+      body: payload,
+      headers: {
+        "If-Match": "*",
+      },
+    });
   }
 
   // ============================================================
@@ -535,12 +646,9 @@ const Graph = (() => {
   async function getActivityLogForToday() {
     await resolveSiteIds();
 
-    // The Payload Diet: Keeps the megabytes small
     const selectedFields =
       "LeadID,LeadId,Title,LeadName,ActionType,Action,Activity,AgentEmail,Agent,Notes,Created";
 
-    // 🛑 NO orderby. NO filter. Just pure pagination to respect the threshold.
-    // 🚀 TWEAK 1: Max out at 5000 per page so we cross the database in as few network trips as possible.
     const url =
       base +
       "/sites/" +
@@ -551,18 +659,20 @@ const Graph = (() => {
 
     let next = url;
     const todayStr = new Date().toDateString();
-
-    // We only store today's logs in memory, saving massive amounts of RAM
     const todayLogs = [];
 
     try {
       while (next) {
-        const response = await apiFetch(next, "GET", null, {
-          Prefer: "allow-throttleable-queries",
+        // 🚀 Pattern Shift: Method and Headers wrapped into the options object
+        const response = await apiFetch(next, {
+          method: "GET",
+          headers: {
+            Prefer: "allow-throttleable-queries",
+          },
         });
+
         const items = response.value || [];
 
-        // 🚀 TWEAK 2: Filter on the fly.
         for (const item of items) {
           const f = item.fields || {};
           const timestamp = item.createdDateTime || f.Created;
@@ -589,9 +699,7 @@ const Graph = (() => {
       console.error("Failed to fetch today's logs:", err);
     }
 
-    // 🚀 TWEAK 3: Because SharePoint gave them to us oldest-first,
-    // today's morning logs are at the top of the array and the evening logs are at the bottom.
-    // We MUST reverse it to get the newest sales at index 0 for the UI!
+    // Newest logs at index 0 for the UI
     return todayLogs.reverse();
   }
 
@@ -600,11 +708,19 @@ const Graph = (() => {
     const url =
       base +
       "/sites/" +
-      siteIds.leadship +
+      siteIds.leadship + // 🚀 Using your 'leadship' site ID
       "/lists/" +
       lists.activityLog +
       "/items";
-    await apiFetch(url, "POST", { fields: entry });
+
+    // 🚀 THE FIX: Wrap the method and body into a single options object
+    // to match your upgraded apiFetch signature.
+    await apiFetch(url, {
+      method: "POST",
+      body: {
+        fields: entry,
+      },
+    });
   }
 
   // Get today's sold leads based on activity log entries.
@@ -653,15 +769,15 @@ const Graph = (() => {
   // Get daily activity stats per agent for the report.
   // Maps agent emails back to display names via the contractors list.
   async function getDailyStats() {
-    const log = await getActivityLog(2000);
+    const log = State.activityLog || [];
     const today = new Date().toDateString();
-    const todayEntries = log.filter(function (e) {
-      return e.timestamp && new Date(e.timestamp).toDateString() === today;
-    });
 
-    // Build email → display name map from contractors
+    const todayEntries = log.filter(
+      (e) => e.timestamp && new Date(e.timestamp).toDateString() === today,
+    );
+
     const emailToName = {};
-    (State.contractors || []).forEach(function (c) {
+    (State.contractors || []).forEach((c) => {
       if (c.email) emailToName[c.email.toLowerCase().trim()] = c.name;
     });
 
@@ -670,32 +786,60 @@ const Graph = (() => {
       const agentEmail = (entry.agent || "").toLowerCase().trim();
       const agent = emailToName[agentEmail] || entry.agent || "Unknown";
 
+      if (!stats[agent]) {
+        stats[agent] = {
+          agent,
+          actions: [],
+          uniqueLeads: new Set(),
+          uniqueSales: new Set(),
+        };
+      }
+
       const isContact =
         entry.action &&
         (entry.action.indexOf("Status:") === 0 ||
-          entry.action === "1st Contact" ||
-          entry.action === "2nd Contact" ||
-          entry.action === "3rd Contact");
-      if (!stats[agent])
-        stats[agent] = {
-          agent,
-          contacts: 0,
-          sold: 0,
-          actions: [],
-          uniqueLeads: new Set(),
-        };
+          entry.action.includes("Contact"));
       if (isContact && entry.leadId) stats[agent].uniqueLeads.add(entry.leadId);
-      if (entry.action === "Status: " + Config.soldStatus) stats[agent].sold++;
+      if (entry.action === "Status: " + Config.soldStatus && entry.leadId)
+        stats[agent].uniqueSales.add(entry.leadId);
+
       stats[agent].actions.push(entry);
     }
 
-    Object.values(stats).forEach(function (s) {
-      s.contacts = s.uniqueLeads.size;
-      delete s.uniqueLeads;
-    });
-    return Object.values(stats).sort(function (a, b) {
-      return b.contacts - a.contacts;
-    });
+    return Object.values(stats)
+      .map(function (s) {
+        // 🚀 CALCULATE AVERAGE CADENCE
+        // Sort actions by time (oldest to newest)
+        const sorted = s.actions.sort(
+          (a, b) => new Date(a.timestamp) - new Date(b.timestamp),
+        );
+        let totalDiff = 0;
+        let intervalCount = 0;
+
+        for (let i = 1; i < sorted.length; i++) {
+          const diff =
+            new Date(sorted[i].timestamp) - new Date(sorted[i - 1].timestamp);
+
+          // Only count intervals under 30 minutes (exclude lunch/long breaks)
+          if (diff > 0 && diff < 30 * 60 * 1000) {
+            totalDiff += diff;
+            intervalCount++;
+          }
+        }
+
+        const avgMs = intervalCount > 0 ? totalDiff / intervalCount : 0;
+        const mins = Math.floor(avgMs / 60000);
+        const secs = Math.floor((avgMs % 60000) / 1000);
+
+        s.avgTime = avgMs > 0 ? `${mins}m ${secs}s` : "—";
+        s.contacts = s.uniqueLeads.size;
+        s.sold = s.uniqueSales.size;
+
+        delete s.uniqueLeads;
+        delete s.uniqueSales;
+        return s;
+      })
+      .sort((a, b) => b.contacts - a.contacts);
   }
 
   // ============================================================
