@@ -109,14 +109,29 @@ const Graph = (() => {
 
   // ── Paginate ───────────────────────────────────────────────
   async function getAllItems(url) {
-    let items = [],
-      next = url;
-    while (next) {
-      const data = await apiFetch(next);
-      items = items.concat(data.value || []);
-      next = data["@odata.nextLink"] || null;
+    const items = []; // Changed to const since we are mutating it instead of reassigning
+    let next = url;
+
+    try {
+      while (next) {
+        const data = await apiFetch(next);
+
+        // 🚀 Push spreads the new items directly into our existing array
+        if (data && data.value) {
+          items.push(...data.value);
+        }
+
+        next = data["@odata.nextLink"] || null;
+      }
+    } catch (error) {
+      // 🛡️ The Safety Net: Logs the exact page that failed but doesn't kill the app
+      console.error("❌ Pagination failed on URL:", next, error);
+      if (window.UI && UI.showToast) {
+        UI.showToast("Network interrupted. Partial data loaded.", "warning");
+      }
     }
-    return items;
+
+    return items; // Returns whatever it managed to grab!
   }
 
   // ============================================================
@@ -126,19 +141,29 @@ const Graph = (() => {
   async function getLeads() {
     await resolveSiteIds();
 
-    // THE GOLDILOCKS QUERY:
-    // expand=fields (with no select) grabs ALL your custom CRM columns.
-    // $select=id... at the root blocks all the heavy Microsoft metadata.
+    // 🚀 TWEAK 2: The Payload Diet (Uncomment and add your exact column names!)
+    // const selectedFields = "Title,FirstName,LastName,Status,BTN,CBR,currentMRC,assignedTo";
+    // const expandQuery = `expand=fields($select=${selectedFields})`;
+
+    // If you don't want to list out the fields yet, just keep your original expand=fields
+    const expandQuery = "expand=fields";
+
     const url =
       base +
       "/sites/" +
       siteIds.team +
       "/lists/" +
       lists.leadsList +
-      `/items?expand=fields&$select=id,lastModifiedDateTime,createdDateTime&$top=2000`;
+      `/items?${expandQuery}&$select=id,lastModifiedDateTime,createdDateTime&$top=5000`; // 🚀 TWEAK 1: Maximize the batch size
 
     const raw = await getAllItems(url);
-    return raw.map(normalizeLeadItem);
+
+    // Remember, we added this client-side filter earlier to hide the D2D leads!
+    return raw
+      .map(normalizeLeadItem)
+      .filter(
+        (lead) => lead.status !== "D2D Lead" && lead.status !== "TDM Non-Reg",
+      );
   }
 
   async function getNextLeadForAgent(agentEmail) {
@@ -409,79 +434,164 @@ const Graph = (() => {
   // ============================================================
   //  ACTIVITY LOG
   // ============================================================
-  async function getActivityLog() {
+  async function getActivityLog(
+    lastSyncDate = null,
+    existingLogs = [],
+    isDeltaRefresh = false,
+  ) {
     await resolveSiteIds();
+
+    // 🚀 STEP 1: If RAM is empty (F5 refresh), try to load from the Local Database first
+    if (!existingLogs || existingLogs.length === 0) {
+      existingLogs = await LocalDB.getAllItems("activity_logs");
+
+      // Sort them newest first so the UI stays consistent
+      existingLogs.sort(
+        (a, b) => new Date(b.timestamp) - new Date(a.timestamp),
+      );
+
+      if (existingLogs.length > 0) {
+        UI.showToast(
+          `🚀 Loaded ${existingLogs.length} logs from local cache.`,
+          "success",
+        );
+      }
+    }
+
+    // 🚀 STEP 2: Decide if we actually need to download anything
+    // If RAM was empty and the Database was empty, we do a full sync (null)
+    // Otherwise, we use the saved lastSyncDate to get the delta
+    let effectiveSyncDate = existingLogs.length === 0 ? null : lastSyncDate;
+
     const selectedFields =
       "LeadID,LeadId,Title,LeadName,ActionType,Action,Activity,AgentEmail,Agent,Notes,Created";
-    const url =
+    let url =
       base +
       "/sites/" +
       siteIds.leadship +
       "/lists/" +
       lists.activityLog +
-      `/items?expand=fields($select=${selectedFields})&$select=id,createdDateTime&$top=2000`;
+      `/items?expand=fields($select=${selectedFields})&$select=id,createdDateTime&$top=5000`;
+
+    if (effectiveSyncDate) {
+      // The millisecond-scrubbing fix for Microsoft Graph
+      const safeDate = effectiveSyncDate.split(".")[0] + "Z";
+      url += `&$filter=fields/Created gt '${safeDate}'`;
+    }
 
     const raw = await getAllItems(url);
 
-    return raw
-      .map((item) => {
-        const f = item.fields || {};
-        return {
-          id: item.id,
-          leadId: String(f.LeadID || f.LeadId || ""),
-          leadName: f.Title || f.LeadName || "",
-          action: f.ActionType || f.Action || f.Activity || "",
-          agent: f.AgentEmail || f.Agent || "",
-          agentEmail: f.AgentEmail || "",
-          notes: f.Notes || "",
-          timestamp: item.createdDateTime || f.Created || null,
-        };
-      })
-      .reverse(); // Put newest items at the top
+    // If no new items exist, we're done! Return what we have.
+    if (raw.length === 0) {
+      if (isDeltaRefresh) UI.showToast("✅ Logs are up to date.", "success");
+      return { updatedLogs: existingLogs, newSyncDate: lastSyncDate };
+    }
+
+    // 🚀 STEP 3: Map the new items from Microsoft
+    const newLogs = raw.map((item) => {
+      const f = item.fields || {};
+      return {
+        id: item.id, // Primary Key for IndexedDB
+        leadId: String(f.LeadID || f.LeadId || ""),
+        leadName: f.Title || f.LeadName || "",
+        action: f.ActionType || f.Action || f.Activity || "",
+        agent: f.AgentEmail || f.Agent || "",
+        agentEmail: f.AgentEmail || "",
+        notes: f.Notes || "",
+        timestamp: item.createdDateTime || f.Created || null,
+      };
+    });
+
+    // 🚀 STEP 4: Save the new items to IndexedDB permanently!
+    // This happens in the background so the UI doesn't lag.
+    await LocalDB.saveItems("activity_logs", newLogs);
+
+    // 🚀 STEP 5: Merge and Sort
+    // New items go to the front, followed by the existing local logs
+    const finalizedLogs = [...newLogs.reverse(), ...existingLogs];
+
+    // 🚀 STEP 6: Update the Sync Date (High-Water Mark)
+    const validTimestamps = newLogs
+      .map((log) => new Date(log.timestamp).getTime())
+      .filter((time) => !isNaN(time));
+
+    let newLastSyncDate = lastSyncDate;
+    if (validTimestamps.length > 0) {
+      const maxTime = Math.max(...validTimestamps);
+      newLastSyncDate = new Date(maxTime).toISOString();
+      localStorage.setItem("RaimakActivityLastSyncDate", newLastSyncDate);
+    }
+
+    if (effectiveSyncDate && isDeltaRefresh) {
+      UI.showToast(`✅ Synced ${newLogs.length} new logs.`, "success");
+    }
+
+    return {
+      updatedLogs: finalizedLogs,
+      newSyncDate: newLastSyncDate,
+    };
   }
 
   async function getActivityLogForToday() {
     await resolveSiteIds();
 
-    // THE DIET QUERY: We pull 2000 items per page, but ONLY the specific fields we need.
-    // This drops the payload size by over 90%, bypassing the 429 throttling limits.
+    // The Payload Diet: Keeps the megabytes small
     const selectedFields =
       "LeadID,LeadId,Title,LeadName,ActionType,Action,Activity,AgentEmail,Agent,Notes,Created";
+
+    // 🛑 NO orderby. NO filter. Just pure pagination to respect the threshold.
+    // 🚀 TWEAK 1: Max out at 5000 per page so we cross the database in as few network trips as possible.
     const url =
       base +
       "/sites/" +
       siteIds.leadship +
       "/lists/" +
       lists.activityLog +
-      `/items?expand=fields($select=${selectedFields})&$select=id,createdDateTime&$top=2000`;
+      `/items?expand=fields($select=${selectedFields})&$select=id,createdDateTime&$top=5000`;
 
-    // getAllItems automatically pages through the database safely
-    const raw = await getAllItems(url);
-
+    let next = url;
     const todayStr = new Date().toDateString();
+
+    // We only store today's logs in memory, saving massive amounts of RAM
     const todayLogs = [];
 
-    // Brute-force through the massive pile to find today's data
-    for (const item of raw) {
-      const f = item.fields || {};
-      const timestamp = item.createdDateTime || f.Created;
-
-      if (timestamp && new Date(timestamp).toDateString() === todayStr) {
-        todayLogs.push({
-          id: item.id,
-          leadId: String(f.LeadID || f.LeadId || ""),
-          leadName: f.Title || f.LeadName || "",
-          action: f.ActionType || f.Action || f.Activity || "",
-          agent: f.AgentEmail || f.Agent || "",
-          agentEmail: f.AgentEmail || "",
-          notes: f.Notes || "",
-          timestamp: timestamp,
+    try {
+      while (next) {
+        const response = await apiFetch(next, "GET", null, {
+          Prefer: "allow-throttleable-queries",
         });
+        const items = response.value || [];
+
+        // 🚀 TWEAK 2: Filter on the fly.
+        for (const item of items) {
+          const f = item.fields || {};
+          const timestamp = item.createdDateTime || f.Created;
+
+          if (!timestamp) continue;
+
+          if (new Date(timestamp).toDateString() === todayStr) {
+            todayLogs.push({
+              id: item.id,
+              leadId: String(f.LeadID || f.LeadId || ""),
+              leadName: f.Title || f.LeadName || "",
+              action: f.ActionType || f.Action || f.Activity || "",
+              agent: f.AgentEmail || f.Agent || "",
+              agentEmail: f.AgentEmail || "",
+              notes: f.Notes || "",
+              timestamp: timestamp,
+            });
+          }
+        }
+
+        next = response["@odata.nextLink"] || null;
       }
+    } catch (err) {
+      console.error("Failed to fetch today's logs:", err);
     }
 
-    // Graph gave them to us oldest-first. We reverse the array so the live feed
-    // gets the newest sales at the very top (index 0).
+    // 🚀 TWEAK 3: Because SharePoint gave them to us oldest-first,
+    // today's morning logs are at the top of the array and the evening logs are at the bottom.
+    // We MUST reverse it to get the newest sales at index 0 for the UI!
     return todayLogs.reverse();
   }
 
@@ -499,14 +609,7 @@ const Graph = (() => {
 
   // Get today's sold leads based on activity log entries.
   // Fetches leads directly to avoid timing issues with State.leads.
-  async function getTodaySales(todayLogs) {
-    await resolveSiteIds();
-
-    // If no logs were passed in, fetch them (used by the 30-sec polling timer)
-    if (!todayLogs) {
-      todayLogs = await getActivityLogForToday();
-    }
-
+  function getTodaySales(todayLogs = []) {
     // 1. THE MAPPER: Build the translation dictionary from contractors
     const nameLookup = {};
     (State.contractors || []).forEach((c) => {
@@ -515,9 +618,14 @@ const Graph = (() => {
 
     const sales = [];
     const seenLeadIds = new Set(); // The Bouncer
+    const todayStr = new Date().toDateString(); // Get today's date for filtering
 
     todayLogs.forEach(function (e) {
-      if (e.action === "Status: " + Config.soldStatus && e.leadId) {
+      // 🛑 CRITICAL: Make sure the log actually happened today!
+      const isToday =
+        e.timestamp && new Date(e.timestamp).toDateString() === todayStr;
+
+      if (isToday && e.action === "Status: " + Config.soldStatus && e.leadId) {
         // Only count the sale if we haven't seen this exact lead ID yet today
         if (!seenLeadIds.has(e.leadId)) {
           seenLeadIds.add(e.leadId);
@@ -720,6 +828,7 @@ const Graph = (() => {
     logActivity,
     getTodaySales,
     getDailyStats,
+    resolveSiteIds,
     applyBusinessRules,
     canAgentTakeLead,
     isInCoolOff,

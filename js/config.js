@@ -110,5 +110,5 @@ const Config = {
 
   scopes: ["Sites.ReadWrite.All", "User.Read"],
 
-  salesFeedInterval: 30000,
+  salesFeedInterval: 45000,
 };

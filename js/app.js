@@ -2,6 +2,8 @@
 window._isWorkingCallback = false;
 const cachedSkips = sessionStorage.getItem("_skippedSessionLeads");
 window._skippedSessionLeads = cachedSkips ? JSON.parse(cachedSkips) : [];
+const savedSyncDate = localStorage.getItem("RaimakActivityLastSyncDate");
+
 const State = {
   leads: [],
   contractors: [],
@@ -18,6 +20,9 @@ const State = {
   salesFeedTimer: null,
   dripLead: null,
   selectedLeads: new Set(),
+
+  // 🚀 THE NEW TIME-BASED TRACKER
+  lastSyncDate: savedSyncDate || null,
 };
 
 const stateTimezones = {
@@ -107,7 +112,7 @@ window.addEventListener("DOMContentLoaded", async function () {
     if (redirectResult) {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
-
+    await LocalDB.init();
     State.currentUser = Auth.getUser();
     State.role = detectRole(State.currentUser);
     showAppShell();
@@ -124,27 +129,70 @@ window.addEventListener("DOMContentLoaded", async function () {
 
 async function loadAllData() {
   setLoading(true);
+  UI.showToast("Syncing floor data...", "info");
+
   try {
-    // 1. Fetch the base data AND the points concurrently!
-    const [rawLeads, contractors, todayLogs] = await Promise.all([
-      Graph.getLeads(),
-      Graph.getContractors(),
-      Graph.getActivityLogForToday(),
-      Points.fetchBalances(), // <-- Fires at the exact same time as the others!
+    // 1. Resolve IDs once
+    await Graph.resolveSiteIds();
+
+    // 🚀 THE FIX Part 1: We pull the Activity Log OUT of the concurrent race.
+    // Leads are heavy, but Contractors and Points are tiny, so they can safely race together!
+    const [rawLeads, contractors, pointsData] = await Promise.all([
+      Graph.getLeads().then((data) => {
+        UI.showToast("✅ Leads synced!", "success");
+        return data;
+      }),
+      Graph.getContractors().then((data) => {
+        UI.showToast("✅ Contractors synced!", "success");
+        return data;
+      }),
+      Points.fetchBalances().then((data) => {
+        UI.showToast("✅ Points balances synced!", "success");
+        return data;
+      }),
     ]);
 
     State.contractors = contractors;
     State.leads = Graph.applyBusinessRules(rawLeads, contractors);
 
-    // 2. Feed todayLogs directly in — NO double fetching!
-    State.todaySales = await Graph.getTodaySales(todayLogs);
+    // 🚀 THE FIX Part 2: The Smart Activity Fetch
+    // Now that the massive Leads download is finished, we safely ask for the Logs
+    let todayLogs = [];
 
-    // 3. Conditionally load the massive historical log ONLY for admins
     if (isAdmin()) {
-      State.activityLog = await Graph.getActivityLog();
+      UI.showToast("Syncing historical admin logs...", "info");
+
+      // Admins use the hyper-fast Delta Sync to get the entire database
+      // 🚀 UPDATED: Swapped highestActivityId for lastSyncDate
+      const logData = await Graph.getActivityLog(
+        State.lastSyncDate,
+        State.activityLog,
+      );
+
+      State.activityLog = logData.updatedLogs;
+      // 🚀 UPDATED: Swapped newHighestId for newSyncDate
+      State.lastSyncDate = logData.newSyncDate;
+
+      // Extract today's logs purely from RAM so we don't have to fetch them again!
+      const todayStr = new Date().toDateString();
+      todayLogs = State.activityLog.filter(
+        (log) =>
+          log.timestamp && new Date(log.timestamp).toDateString() === todayStr,
+      );
+
+      UI.showToast("✅ Admin logs synced!", "success");
     } else {
-      State.activityLog = todayLogs; // Standard agents just keep the lightweight log in state
+      UI.showToast("Syncing today's activity...", "info");
+
+      // Standard agents just get the fast daily log
+      todayLogs = await Graph.getActivityLogForToday();
+      State.activityLog = todayLogs;
+
+      UI.showToast("✅ Activity synced!", "success");
     }
+
+    // 3. Instant, synchronous math!
+    State.todaySales = Graph.getTodaySales(todayLogs);
   } catch (err) {
     UI.showToast("Failed to load data: " + err.message, "error");
     console.error("Data Load Error:", err);
@@ -595,30 +643,49 @@ function startSalesFeedPolling() {
   // 1. Wrap the entire fetch and render logic in a named inner function
   async function pollSalesData() {
     try {
-      const newSales = await Graph.getTodaySales();
+      // 🚀 1. The Lightweight Delta Sync (Runs silently!)
+      // UPDATED: Swapped highestActivityId for lastSyncDate
+      const logData = await Graph.getActivityLog(
+        State.lastSyncDate,
+        State.activityLog,
+      );
 
+      // Update global state with the merged logs and the new timestamp
+      State.activityLog = logData.updatedLogs;
+      // UPDATED: Swapped newHighestId for newSyncDate
+      State.lastSyncDate = logData.newSyncDate;
+
+      // 🚀 2. In-Memory Math (Zero network requests)
+      const newSales = Graph.getTodaySales(State.activityLog);
+
+      // Update State FIRST so if Ticker.update() relies on it, the data is ready
+      State.todaySales = newSales;
+
+      // 3. The Confetti Trigger
       const newOnes = newSales.filter(function (l) {
         return !knownSaleIds.has(l.id);
       });
 
-      if (newOnes.length) {
-        Ticker.update();
-        UI.showConfetti();
+      if (newOnes.length > 0) {
+        // Scrubbed the window. prefix!
+        if (Ticker && Ticker.update) Ticker.update();
+        if (UI && UI.showConfetti) UI.showConfetti();
+
         newOnes.forEach(function (l) {
           knownSaleIds.add(l.id);
         });
       }
 
-      State.todaySales = newSales;
-
+      // 4. DOM Updates
       if (State.currentView === "dashboard") {
         const feed = document.getElementById("dash-sales-feed");
         const time = document.getElementById("sales-feed-time");
 
         if (!feed) return;
 
-        if (time)
+        if (time) {
           time.textContent = "Updated " + formatTime(new Date().toISOString());
+        }
 
         if (!newSales || !newSales.length) {
           feed.innerHTML = `<p class="empty-state" style="padding:24px; text-align:center;">No sales yet today.</p>`;
@@ -636,22 +703,28 @@ function startSalesFeedPolling() {
           return nameLookup[lower] || rawString;
         }
 
+        // 🚀 Translated for the Activity Log object structure
         feed.innerHTML = [...newSales]
           .sort(function (a, b) {
-            return new Date(b.modified) - new Date(a.modified);
+            return new Date(b.saleTime) - new Date(a.saleTime);
           })
           .slice(0, 6)
           .map(function (l) {
-            const displayAgent = formatAgentName(l.soldBy || l.assignedTo);
+            // 1. soldBy already contains the translated name from getTodaySales
+            const displayAgent = l.soldBy || "Unassigned";
+
+            // 2. 'name' is what getTodaySales uses instead of 'leadName'
+            const displayName = l.name || "Unknown Lead";
+
             return `
-          <div class="sale-entry">
-            <div class="sale-icon">&#127881;</div>
-            <div class="sale-info">
-              <span class="sale-name">${escHtml(l.name)}</span>
-              <span class="sale-agent">${escHtml(displayAgent)}</span>
-            </div>
-            <span class="sale-time">${formatTime(l.modified)}</span>
-          </div>`;
+      <div class="sale-entry">
+        <div class="sale-icon">🎉</div>
+        <div class="sale-info">
+          <span class="sale-name">${escHtml(displayName)}</span>
+          <span class="sale-agent">${escHtml(displayAgent)}</span>
+        </div>
+        <span class="sale-time">${formatTime(l.saleTime)}</span>
+      </div>`;
           })
           .join("");
       }
