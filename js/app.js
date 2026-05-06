@@ -1205,12 +1205,11 @@ function renderLeadFeedCard(myLeads) {
   // 1. FIXED LOGIC: Grab the exact lead we are supposed to be looking at!
   let lead = myLeads[_currentFeedIndex];
 
-  // If that exact lead happens to be in cool-off, we should probably warn the logic,
-  // but we still want to show them the correct lead!
   const isCoolOff = lead ? Graph.isInCoolOff(lead) : false;
 
   _stagedStatus = null;
   window._forceShowLead = false;
+
   // 2. Setup Template
   const template = document.getElementById("tmpl-lead-feed-card");
   const clone = template.content.cloneNode(true);
@@ -1220,7 +1219,7 @@ function renderLeadFeedCard(myLeads) {
 
   // 3. Handle Empty State
   if (!lead) {
-    emptyState.style.display = "flex"; // Show empty state
+    emptyState.style.display = "flex";
     clone.getElementById("feed-empty-text").textContent =
       myLeads.length > 0
         ? "Remaining leads are in the cool-off period."
@@ -1232,7 +1231,7 @@ function renderLeadFeedCard(myLeads) {
   }
 
   // 4. Handle Active Lead State
-  activeState.style.display = "block"; // Show active form
+  activeState.style.display = "block";
 
   // Badges & Name
   const typeBadge = clone.getElementById("feed-lead-type");
@@ -1260,21 +1259,19 @@ function renderLeadFeedCard(myLeads) {
   }
 
   // ==========================================
-  // NEW: 1. THE CALLBACK / INSTALL ALERT BADGE
+  // 1. THE CALLBACK / INSTALL ALERT BADGE
   // ==========================================
   const callbackAlert = clone.getElementById("feed-callback-alert");
   if (callbackAlert && lead.callbackAt) {
     const targetDate = new Date(lead.callbackAt);
     const today = new Date();
 
-    // Create midnight versions for pure day comparison
     const todayMidnight = new Date(today);
     todayMidnight.setHours(0, 0, 0, 0);
     const targetMidnight = new Date(targetDate);
     targetMidnight.setHours(0, 0, 0, 0);
 
     if (todayMidnight >= targetMidnight) {
-      // Format time like "2:30 PM"
       const timeString = targetDate.toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
@@ -1287,6 +1284,51 @@ function renderLeadFeedCard(myLeads) {
         callbackAlert.innerHTML = `📅 ACTION REQUIRED: Scheduled follow-up today at ${timeString}`;
       }
       callbackAlert.style.display = "block";
+    }
+  }
+
+  // ==========================================
+  // 🚀 NEW: 1.5 THE OUT-OF-HOURS BANNER
+  // ==========================================
+  let localHour = 12; // Default to safe noon just in case
+  try {
+    let tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // We use the same stateTimezones dictionary you built!
+    if (
+      lead.state &&
+      typeof stateTimezones !== "undefined" &&
+      stateTimezones[lead.state]
+    ) {
+      tz = stateTimezones[lead.state];
+    }
+    localHour = parseInt(
+      new Intl.DateTimeFormat("en-US", {
+        hour: "numeric",
+        hour12: false,
+        timeZone: tz,
+      }).format(new Date()),
+      10,
+    );
+  } catch (e) {
+    console.warn("Timezone calculation failed, defaulting to safe hours.", e);
+  }
+
+  const isAwake = localHour >= 9 && localHour < 20;
+
+  if (!isAwake) {
+    const oohBanner = document.createElement("div");
+    // We dynamically generate the banner HTML so you don't have to touch your template
+    oohBanner.innerHTML = `
+      <div style="background: #FDE68A; color: #92400E; padding: 10px 14px; border-radius: 6px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #F59E0B;">
+        <span style="font-size: 13px;"><strong>⚠️ Outside of Calling Hours:</strong> Outside the 9AM - 8PM window in ${lead.state || "their timezone"}.</span>
+        <button type="button" onclick="skipOutOfHoursLead('${lead.id}')" style="background: #92400E; color: #fff; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; cursor: pointer; font-weight: bold; transition: opacity 0.2s;" onmouseover="this.style.opacity='0.8'" onmouseout="this.style.opacity='1'">Skip & Save Data</button>
+      </div>
+    `;
+
+    // Inject it perfectly right above the phone/email block
+    const metaContainer = clone.getElementById("feed-meta-container");
+    if (metaContainer) {
+      metaContainer.parentNode.insertBefore(oohBanner, metaContainer);
     }
   }
 
@@ -1306,7 +1348,7 @@ function renderLeadFeedCard(myLeads) {
   clone.getElementById("feed-cbr").value = lead.cbr || "";
 
   // ==========================================
-  // NEW: 2. PULLING THE SAVED CALLBACK DATE UI
+  // 2. PULLING THE SAVED CALLBACK DATE UI
   // ==========================================
   const callbackInput = clone.getElementById("f-callback-date");
   const callbackWrap = clone.getElementById("callback-wrapper");
@@ -1314,7 +1356,6 @@ function renderLeadFeedCard(myLeads) {
   const callbackLabel = clone.getElementById("callback-label");
 
   if (callbackInput && lead.callbackAt) {
-    // SharePoint gives us ISO strings (UTC). HTML datetime-local needs YYYY-MM-DDThh:mm in local time.
     const localDate = new Date(lead.callbackAt);
     const tzOffset = localDate.getTimezoneOffset() * 60000;
     const localISOTime = new Date(localDate - tzOffset)
@@ -1323,7 +1364,6 @@ function renderLeadFeedCard(myLeads) {
 
     callbackInput.value = localISOTime;
 
-    // Slide the menu open so the agent sees the date is set
     if (callbackWrap) {
       callbackWrap.style.width = "200px";
       callbackWrap.style.opacity = "1";
@@ -1331,7 +1371,6 @@ function renderLeadFeedCard(myLeads) {
       callbackWrap.dataset.manuallyOpened = "false";
     }
 
-    // If it's a pending order, apply the visual lockdown
     if (lead.status === "Pending Order" && callbackBtn) {
       if (callbackLabel)
         callbackLabel.innerHTML =
@@ -1352,19 +1391,16 @@ function renderLeadFeedCard(myLeads) {
       }
 
       if (selectedVal) {
-        // 1. The Green Flash on the input box
         callbackInput.style.transition =
           "background-color 0.3s, border-color 0.3s";
         callbackInput.style.backgroundColor = "var(--green-dim, #e6f8f3)";
         callbackInput.style.borderColor = "var(--green, #10b981)";
 
         setTimeout(() => {
-          callbackInput.style.backgroundColor = ""; // Fade out background, leave the border
+          callbackInput.style.backgroundColor = "";
         }, 600);
 
-        // 2. Only apply the cooldown and label change if it's NOT a Pending Order
         if (lead.status !== "Pending Order" && callbackBtn) {
-          // Update the label to the "Aha!" state
           if (callbackLabel) {
             const d = new Date(selectedVal);
             const formattedStr =
@@ -1375,14 +1411,11 @@ function renderLeadFeedCard(myLeads) {
             callbackLabel.style.color = "var(--green, #10b981)";
           }
 
-          // Gray it out to prevent the instant double-click
           callbackBtn.disabled = true;
           callbackBtn.style.opacity = "0.4";
           callbackBtn.style.cursor = "not-allowed";
 
-          // Bring it back to life after 2 seconds
           setTimeout(() => {
-            // Double check it wasn't miraculously changed to a pending order in the last 2 seconds
             if (lead.status !== "Pending Order") {
               callbackBtn.disabled = false;
               callbackBtn.style.opacity = "1";
@@ -1391,7 +1424,6 @@ function renderLeadFeedCard(myLeads) {
           }, 2000);
         }
       } else {
-        // 3. THE MISSING ELSE BLOCK (If they manually clear the input box)
         callbackInput.style.borderColor = "";
         if (callbackLabel) {
           callbackLabel.innerHTML = "Callback date and time";
@@ -1400,6 +1432,7 @@ function renderLeadFeedCard(myLeads) {
       }
     });
   }
+
   // Products Dropdown
   const productsSelect = clone.getElementById("feed-products");
   Config.currentProducts.forEach((p) => {
@@ -1461,7 +1494,7 @@ function renderLeadFeedCard(myLeads) {
   // THE RESTORED LEGACY NOTES PARSER
   const pastNotesContainer = clone.getElementById("feed-past-notes-container");
   if (lead.notes && lead.notes.trim()) {
-    pastNotesContainer.style.display = "block"; // Unhide the box
+    pastNotesContainer.style.display = "block";
     const notesHtml = lead.notes
       .split("\n")
       .filter((l) => l.trim())
@@ -1746,6 +1779,9 @@ async function agentSaveAll(leadId) {
       ? lead.callbackAt
       : null;
 
+  if (newStatus === "TDM") {
+    saveFields["Agent_x0020_Assigned"] = null;
+  }
   setLoading(true);
   try {
     const logEntry = {
@@ -1788,7 +1824,12 @@ async function agentSaveAll(leadId) {
     lead.callbackAt = rawCallbackDate || null;
 
     Points.awardPoints(newStatus, leadId);
-    UI.showToast("Saved!", "success");
+
+    if (newStatus === "TDM") {
+      UI.showToast("TDM — lead returned to admin queue.", "info");
+    } else {
+      UI.showToast("Saved!", "success");
+    }
 
     // UI State
     _stagedStatus = null;
@@ -1825,6 +1866,68 @@ async function agentSaveAll(leadId) {
   } catch (err) {
     console.error("Save Error:", err);
     UI.showToast("Failed to save: " + err.message, "error");
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function skipOutOfHoursLead(leadId) {
+  const lead = State.leads.find((l) => l.id === leadId);
+  if (!lead) return;
+
+  // 1. Grab any data they managed to scrub/find
+  const mrc = (document.getElementById("feed-mrc") || {}).value || "";
+  const products = (document.getElementById("feed-products") || {}).value || "";
+  const cbr = (document.getElementById("feed-cbr") || {}).value || "";
+  const btn = (document.getElementById("feed-btn") || {}).value || "";
+  const newNote = (document.getElementById("feed-notes") || {}).value || "";
+
+  // Note Stamping
+  let notes = lead.notes || "";
+  if (newNote.trim()) {
+    const today = new Date();
+    const dateStamp =
+      (today.getMonth() + 1).toString().padStart(2, "0") +
+      "/" +
+      today.getDate().toString().padStart(2, "0") +
+      "/" +
+      String(today.getFullYear()).slice(-2);
+    const stamped = `[${dateStamp} - Skipped] Out of Hours Scrub - ${newNote.trim()}`;
+    notes = notes ? stamped + "\n" + notes : stamped;
+  }
+
+  // 2. Setup the "Stealth" Payload
+  // Notice we DO NOT change the Status, and we DO NOT update LastContacted.
+  //const todayDate = new Date().toISOString().split("T")[0];
+  const saveFields = {
+    //LastTouchedOn: todayDate, // Resets the recycle clock so they keep it!
+    Notes: notes,
+  };
+
+  if (mrc) saveFields["MonthlyRecurringCharge_x0028_MRC"] = mrc;
+  if (products) saveFields["CurrentProducts"] = products;
+  if (cbr) saveFields["CBR"] = cbr;
+  if (btn) saveFields["BTN"] = btn;
+
+  setLoading(true);
+  try {
+    // 3. Save silently to SharePoint
+    await Graph.updateLead(leadId, saveFields);
+
+    // 4. Update Local RAM
+    lead.notes = notes;
+    if (mrc) lead.currentMRC = mrc;
+    if (products) lead.currentProducts = products;
+    if (cbr) lead.cbr = cbr;
+    if (btn) lead.btn = btn;
+
+    UI.showToast("Data scrubbed and lead skipped for later!", "info");
+
+    // 5. Move to the next lead without burning this one
+    advanceToNextLead();
+  } catch (err) {
+    console.error("Skip Error:", err);
+    UI.showToast("Failed to skip: " + err.message, "error");
   } finally {
     setLoading(false);
   }
@@ -3341,16 +3444,11 @@ async function renderDailyReport() {
     return;
   }
 
-  // 🎨 HELPER: Generates the "Stoplight" color shift
   function getDynamicColor(contacts) {
     let hue = 0;
-    if (contacts <= 25) {
-      hue = (contacts / 25) * 60; // Red to Yellow
-    } else if (contacts <= 50) {
-      hue = 60 + ((contacts - 25) / 25) * 60; // Yellow to Green
-    } else {
-      hue = 120; // Goal Green
-    }
+    if (contacts <= 25) hue = (contacts / 25) * 60;
+    else if (contacts <= 50) hue = 60 + ((contacts - 25) / 25) * 60;
+    else hue = 120;
     return `hsl(${hue}, 80%, 45%)`;
   }
 
@@ -3368,12 +3466,22 @@ async function renderDailyReport() {
     });
 
     document.getElementById("main-content").innerHTML = `
-      <div class="view-header">
+      <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 15px;">
         <div>
           <h1 class="view-title">Daily Report</h1>
           <span class="view-subtitle">// ${today}</span>
         </div>
-        <button class="btn-ghost" onclick="exportReportCSV()">Export CSV</button>
+        
+        <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-end;">
+          <div style="display: flex; gap: 10px; align-items: center; background: #f8fafc; padding: 10px 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
+            <span style="font-size: 13px; font-weight: 600; color: #475569;">Export Range:</span>
+            <input type="date" id="export-start" style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">
+            <span style="color: #94a3b8; font-size: 13px;">to</span>
+            <input type="date" id="export-end" style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">
+            <button class="btn-ghost" style="background: var(--blue, #2563B0); color: #fff;" onclick="exportDateRangeCSV()" id="btn-export-range">Download CSV</button>
+          </div>
+          <button class="btn-ghost" style="font-size: 13px;" onclick="exportReportCSV()">Export Today Only (.csv)</button>
+        </div>
       </div>
 
       <div class="kpi-grid">
@@ -3383,7 +3491,7 @@ async function renderDailyReport() {
         </div>
         <div class="kpi-card kpi-success">
           <span class="kpi-label">Total Sales Today</span>
-          <span class="kpi-value">${State.todaySales.length}</span>
+          <span class="kpi-value">${State.todaySales ? State.todaySales.length : 0}</span>
         </div>
         <div class="kpi-card kpi-info">
           <span class="kpi-label">Active Agents</span>
@@ -3391,13 +3499,7 @@ async function renderDailyReport() {
         </div>
         <div class="kpi-card kpi-neutral">
           <span class="kpi-label">Avg Contacts/Agent</span>
-          <span class="kpi-value">${
-            stats.length
-              ? Math.round(
-                  stats.reduce((s, a) => s + a.contacts, 0) / stats.length,
-                )
-              : 0
-          }</span>
+          <span class="kpi-value">${stats.length ? Math.round(stats.reduce((s, a) => s + a.contacts, 0) / stats.length) : 0}</span>
         </div>
       </div>
 
@@ -3419,14 +3521,12 @@ async function renderDailyReport() {
                 stats.length
                   ? stats
                       .map(function (a) {
-                        // Sort actions to find the most recent one
                         const last = a.actions.length
                           ? a.actions.sort(
                               (x, y) =>
                                 new Date(y.timestamp) - new Date(x.timestamp),
                             )[0]
                           : null;
-
                         const statusColor = getDynamicColor(a.contacts);
 
                         return `<tr>
@@ -3455,6 +3555,153 @@ async function renderDailyReport() {
   } catch (err) {
     UI.showToast("Failed to load report: " + err.message, "error");
     console.error(err);
+  }
+}
+
+async function exportDateRangeCSV() {
+  const startVal = document.getElementById("export-start").value;
+  const endVal = document.getElementById("export-end").value;
+  const btn = document.getElementById("btn-export-range");
+
+  if (!startVal || !endVal) {
+    return UI.showToast("Please select both a start and end date.", "warning");
+  }
+
+  const startObj = new Date(startVal);
+  startObj.setHours(0, 0, 0, 0);
+
+  const endObj = new Date(endVal);
+  endObj.setHours(23, 59, 59, 999);
+
+  if (startObj > endObj) {
+    return UI.showToast("Start date cannot be after the end date.", "warning");
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Processing...";
+  }
+
+  try {
+    const logs = (State.activityLog || []).filter((log) => {
+      if (!log.timestamp) return false;
+      const logDate = new Date(log.timestamp);
+      return logDate >= startObj && logDate <= endObj;
+    });
+
+    const calendarDays = Math.max(1, Math.ceil((endObj - startObj) / 86400000));
+    const agentData = {};
+
+    // 1. Tally up the data by Agent
+    logs.forEach((log) => {
+      const email = log.agentEmail || log.agent || "Unknown";
+
+      if (!agentData[email]) {
+        agentData[email] = {
+          agent: email,
+          totalContacts: 0,
+          totalSales: 0,
+          daysWorked: new Set(),
+          timestampsByDay: {}, // 🚀 NEW: Tracking raw time data
+        };
+      }
+
+      agentData[email].totalContacts++;
+
+      if (
+        log.action &&
+        (log.action.includes("Sold") || log.action.includes("Sale"))
+      ) {
+        agentData[email].totalSales++;
+      }
+
+      const localDateStr = new Date(log.timestamp).toLocaleDateString();
+      agentData[email].daysWorked.add(localDateStr);
+
+      // 🚀 NEW: Store the exact millisecond timestamp for this specific day
+      if (!agentData[email].timestampsByDay[localDateStr]) {
+        agentData[email].timestampsByDay[localDateStr] = [];
+      }
+      agentData[email].timestampsByDay[localDateStr].push(
+        new Date(log.timestamp).getTime(),
+      );
+    });
+
+    // 2. Build the CSV Headers
+    const csvRows = [
+      "Agent,Total Contacts,Total Sales,Days Logged In,Avg Contacts/Active Day,Avg Contacts/Calendar Day,Avg Time Between Contacts",
+    ];
+
+    // 3. Process the Data & Calculate Averages
+    Object.values(agentData).forEach((data) => {
+      const activeDays = data.daysWorked.size || 1;
+      const avgPerActiveDay = (data.totalContacts / activeDays).toFixed(1);
+      const avgPerCalendarDay = (data.totalContacts / calendarDays).toFixed(1);
+
+      // 🚀 NEW: The Math Engine for "Time Between Contacts"
+      let totalDiffMs = 0;
+      let diffCount = 0;
+
+      Object.values(data.timestampsByDay).forEach((dayTimes) => {
+        if (dayTimes.length > 1) {
+          // Sort times from earliest to latest in the day
+          dayTimes.sort((a, b) => a - b);
+
+          for (let i = 1; i < dayTimes.length; i++) {
+            const diff = dayTimes[i] - dayTimes[i - 1];
+            // 🛡️ The Lunch Break Skew Fix: Ignore gaps larger than 2 hours (7,200,000 ms)
+            if (diff < 3000000) {
+              totalDiffMs += diff;
+              diffCount++;
+            }
+          }
+        }
+      });
+
+      // Format the result into a readable "Xm Ys" string
+      let avgTimeStr = "—";
+      if (diffCount > 0) {
+        const avgMs = totalDiffMs / diffCount;
+        const avgMins = Math.floor(avgMs / 60000);
+        const avgSecs = Math.floor((avgMs % 60000) / 1000);
+        avgTimeStr = `${avgMins}m ${avgSecs}s`;
+      }
+
+      // Add to the CSV row
+      csvRows.push(
+        `"${data.agent}",${data.totalContacts},${data.totalSales},${activeDays},${avgPerActiveDay},${avgPerCalendarDay},"${avgTimeStr}"`,
+      );
+    });
+
+    if (csvRows.length === 1) {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Download CSV";
+      }
+      return UI.showToast("No activity found for this date range.", "warning");
+    }
+
+    // 4. Download Trigger
+    const csvContent = csvRows.join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `Range_Report_${startVal}_to_${endVal}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    UI.showToast("Range report downloaded successfully!", "success");
+  } catch (err) {
+    console.error("Export failed:", err);
+    UI.showToast("Export failed: " + err.message, "error");
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = "Download CSV";
+    }
   }
 }
 
