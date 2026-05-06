@@ -166,87 +166,43 @@ const Points = {
   },
 
   async awardPoints(actionType, leadId = null) {
-    // 1. Validate the action exists in our economy manifest
     let pointValue = this.rewards[actionType];
-    if (!pointValue) {
-      console.warn(
-        `⚠️ Action "${actionType}" is not set in the rewards manifest.`,
-      );
-      return false;
-    }
+    if (!pointValue) return false;
 
-    // Default to the person currently logged in and clicking the mouse
-    let beneficiaryEmail = (
-      (State.currentUser && State.currentUser.email) ||
-      ""
-    )
+    let beneficiaryEmail = (State.currentUser?.email || "")
       .toLowerCase()
       .trim();
-    let beneficiaryName = (State.currentUser && State.currentUser.name) || "";
+    let beneficiaryName = State.currentUser?.name || "";
 
-    // 🛡️ 1.5 THE ULTIMATE DRY BOUNCER & BENEFICIARY ROUTER 🛡️
-    // Check if the actionType exactly matches a status in our Config array
-    if (
-      Config.leadStatuses &&
-      Config.leadStatuses.includes(actionType) &&
-      leadId
-    ) {
+    if (Config.leadStatuses?.includes(actionType) && leadId) {
       const realLead = (State.leads || []).find(
         (l) => String(l.id) === String(leadId),
       );
+      if (!realLead || realLead.status !== actionType) return false;
 
-      // Security Check A: Does the lead exist?
-      if (!realLead) {
-        console.error(
-          "🛑 Security Block: Attempted to claim points for a non-existent lead.",
-        );
-        return false;
-      }
-
-      // Security Check B: Does the actual lead status match the action being claimed?
-      if (realLead.status !== actionType) {
-        console.error(
-          `🛑 Security Block: Lead status is currently '${realLead.status}', but expected '${actionType}'.`,
-        );
-        return false;
-      }
-
-      // --- THE PROXY FIX ---
-      // If the lead has an assigned agent, look up their actual email in the Bank
       if (realLead.assignedTo) {
-        // HELPER: Strips all punctuation (periods, commas) and extra spaces, then lowercases it
         const normalize = (str) =>
           (str || "")
             .replace(/[^\w\s]/gi, "")
             .replace(/\s+/g, " ")
             .toLowerCase()
             .trim();
-
         const normalizedLeadOwner = normalize(realLead.assignedTo);
-
         const ownerBankRow = (State.agentScores || []).find(
           (s) => normalize(s.AgentName) === normalizedLeadOwner,
         );
 
-        if (ownerBankRow && ownerBankRow.AgentEmail) {
-          // Switch the beneficiary from the person clicking to the true lead owner
+        if (ownerBankRow?.AgentEmail) {
           beneficiaryEmail = ownerBankRow.AgentEmail.toLowerCase().trim();
           beneficiaryName = ownerBankRow.AgentName;
         } else {
-          console.error(
-            `🛑 System Block: Could not find a bank account for lead owner: ${realLead.assignedTo}.`,
-          );
-          return false; // Can't pay a ghost!
+          return false;
         }
       }
     }
 
-    // Fallback: If we somehow still don't have an email, abort.
     if (!beneficiaryEmail) return false;
 
-    // 🌟 2. THE COMBO COUNTER LOGIC (Upgraded with Passive Streak Aura) 🌟
-
-    // 1. Calculate the current sales streak no matter WHAT action they just took
     const uniqueSalesToday = new Set();
     const todayString = new Date().toDateString();
     const cleanName = (str) =>
@@ -256,162 +212,99 @@ const Points = {
         .trim();
 
     (State.activityLog || []).forEach((log) => {
-      const logDate = new Date(log.timestamp).toDateString();
-
-      // We only hunt for SALES in the history, excluding the current lead
       if (
         log.action === "Status: " + Config.soldStatus &&
         log.leadId !== leadId &&
-        logDate === todayString
+        new Date(log.timestamp).toDateString() === todayString
       ) {
         const pastLead = (State.leads || []).find(
           (l) => String(l.id) === String(log.leadId),
         );
-
-        if (pastLead) {
-          const isMine =
-            cleanName(pastLead.assignedTo) === cleanName(beneficiaryName);
-          const isStillSold = pastLead.status === Config.soldStatus;
-
-          if (isMine && isStillSold) {
-            uniqueSalesToday.add(log.leadId);
-          }
+        if (
+          pastLead &&
+          cleanName(pastLead.assignedTo) === cleanName(beneficiaryName) &&
+          pastLead.status === Config.soldStatus
+        ) {
+          uniqueSalesToday.add(log.leadId);
         }
       }
     });
 
     const previousSalesCount = uniqueSalesToday.size;
-
-    // 2. Apply the specific math based on what button they actually clicked
     if (actionType === Config.soldStatus) {
-      // 💥 MAIN EVENT: The Sales Multiplier
-      const comboMultiplier = previousSalesCount + 1;
-      pointValue = pointValue * comboMultiplier;
-
-      if (comboMultiplier > 1) {
-        console.log(
-          `🔥 COMBO x${comboMultiplier}! Reward boosted to ${pointValue} points!`,
-        );
-      }
-    } else {
-      // ⚡ PASSIVE AURA: The Flat Bonus for everything else (+2 XP per past sale)
-      if (previousSalesCount > 0) {
-        const bonusPoints = previousSalesCount * 2;
-        pointValue = pointValue + bonusPoints;
-
-        console.log(
-          `⚡ STREAK BONUS! +${bonusPoints} points added to ${actionType} for your ${previousSalesCount}-sale streak!`,
-        );
-      }
+      pointValue *= previousSalesCount + 1;
+    } else if (previousSalesCount > 0) {
+      pointValue += previousSalesCount * 2;
     }
 
     try {
-      // 3. THE BOUNCER: Check for duplicates in the database Ledger
-      if (leadId) {
-        const isDuplicate = await Graph.checkLedgerForDuplicate(
+      // 🚀 THE PATCH: Passing the dynamically resolved beneficiaryEmail
+      if (
+        leadId &&
+        (await Graph.checkLedgerForDuplicate(
           leadId,
           actionType,
-        );
-        if (isDuplicate) {
-          console.log(
-            `🛑 Bouncer blocked duplicate reward: ${actionType} on lead ${leadId}`,
-          );
-          return false;
-        }
-      }
+          beneficiaryEmail,
+        ))
+      )
+        return false;
 
-      // 4. THE MATH: Calculate the new totals for the Beneficiary
       const myScoreIndex = State.agentScores.findIndex(
         (s) => s.AgentEmail.toLowerCase() === beneficiaryEmail,
       );
-
-      let myScoreId = null;
-      let newCurrentPoints = pointValue;
-      let newLifetimePoints = pointValue;
+      let myScoreId = null,
+        newCurrentPoints = pointValue,
+        newLifetimePoints = pointValue;
 
       if (myScoreIndex !== -1) {
-        // Add to their existing totals
-        newCurrentPoints =
-          State.agentScores[myScoreIndex].CurrentPoints + pointValue;
-        newLifetimePoints =
-          State.agentScores[myScoreIndex].LifetimePoints + pointValue;
-
-        // Update the global State array so the Leaderboard stays live
-        State.agentScores[myScoreIndex].CurrentPoints = newCurrentPoints;
-        State.agentScores[myScoreIndex].LifetimePoints = newLifetimePoints;
+        newCurrentPoints = State.agentScores[myScoreIndex].CurrentPoints +=
+          pointValue;
+        newLifetimePoints = State.agentScores[myScoreIndex].LifetimePoints +=
+          pointValue;
         myScoreId = State.agentScores[myScoreIndex].id;
       }
 
-      const currentUserEmail = (
-        (State.currentUser && State.currentUser.email) ||
-        ""
-      )
+      const currentUserEmail = (State.currentUser?.email || "")
         .toLowerCase()
         .trim();
-      const isMeClicking = beneficiaryEmail === currentUserEmail;
-      // ONLY update the local UI Bank (this.currentBalance) if the person clicking is the beneficiary
-      // 🆙 THE LEVEL UP TRACKER 🆙
-      const oldLevel = this.calculateLevel(this.lifetimePoints);
-      const newLevel = this.calculateLevel(newLifetimePoints);
-
-      if (isMeClicking) {
+      if (beneficiaryEmail === currentUserEmail) {
+        const oldLevel = this.calculateLevel(this.lifetimePoints);
+        const newLevel = this.calculateLevel(newLifetimePoints);
         this.currentBalance = newCurrentPoints;
         this.lifetimePoints = newLifetimePoints;
 
-        console.log(
-          `🎉 Awarded ${pointValue} points for ${actionType}! New Balance: ${this.currentBalance}`,
-        );
-
-        // 🚀 TRIGGER THE DOPAMINE (The Decoupling) 🚀
-        // We removed this.updateHUD() from here. The HUD will now update
-        // exactly when the particles collide in the flyParticlesToHUD function!
-
-        let maxParticles = 12; // Standard burst
-        if (pointValue >= 100) maxParticles = 25; // Medium burst
-        if (pointValue >= 200) maxParticles = 35; // MASSIVE explosion for Sales!
-        if (pointValue >= 300) maxParticles = 40;
-        if (pointValue >= 400) maxParticles = 50;
-
-        const minParticles = Math.ceil(maxParticles * 0.25);
+        let maxP =
+          pointValue >= 400
+            ? 50
+            : pointValue >= 300
+              ? 40
+              : pointValue >= 200
+                ? 35
+                : pointValue >= 100
+                  ? 25
+                  : 12;
         const particleCount =
-          Math.floor(Math.random() * (maxParticles - minParticles + 1)) +
-          minParticles;
-
+          Math.floor(Math.random() * (maxP - Math.ceil(maxP * 0.25) + 1)) +
+          Math.ceil(maxP * 0.25);
         this.flyParticlesToHUD(particleCount, pointValue);
 
-        // Did we just level up?!
-        if (newLevel > oldLevel) {
-          console.log(`🎊 LEVEL UP! You are now Level ${newLevel}! 🎊`);
-
-          Points.triggerLevelUp(newLevel);
-        }
-      } else {
-        console.log(
-          `🤝 Proxy Sale! Awarded ${pointValue} points to ${beneficiaryName}'s account.`,
-        );
-        // Note: We don't show the level-up fireworks to the proxy clicker, just log it.
+        if (newLevel > oldLevel) Points.triggerLevelUp(newLevel);
       }
 
-      // 5. THE RECEIPT: Write the transaction with the MULTIPLIED value
       await Graph.writeLedgerTransaction(
         beneficiaryEmail,
         actionType,
         pointValue,
         leadId,
       );
-
-      // 6. THE BANK DEPOSIT: Save the new total to SharePoint
-      if (myScoreId) {
+      if (myScoreId)
         await Graph.updateAgentScore(
           myScoreId,
           newCurrentPoints,
           newLifetimePoints,
         );
-      }
-
       return true;
     } catch (error) {
-      console.error("Economy Engine Error:", error);
       return false;
     }
   },

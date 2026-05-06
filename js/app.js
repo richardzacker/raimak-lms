@@ -900,7 +900,8 @@ let _leadSaved = false;
 let _currentFeedIndex = 0;
 
 function renderMyLeads() {
-  if (!_leadSaved) _leadSaved = false;
+  if (typeof _leadSaved === "undefined") window._leadSaved = false;
+
   // 🕒 KEEPING THE CLOCK LOGIC AT THE TOP (Local Scope)
   const updateClock = () => {
     const clockEl = document.getElementById("myleads-clock");
@@ -1037,7 +1038,7 @@ function renderMyLeads() {
   window._forceShowLead = false;
 
   // ==========================================
-  //  ☕ THE FINISH LINE (No more looping!)
+  //  ☕ THE FINISH LINE (Ghost Lead Fix)
   // ==========================================
   const mainContent = document.getElementById("main-content");
   if (myLeads.length === 0 || _currentFeedIndex >= myLeads.length) {
@@ -1049,7 +1050,7 @@ function renderMyLeads() {
         <div style="font-size:4rem; margin-bottom:20px;">☕</div>
         <h2 class="view-title">Queue Clear!</h2>
         <p style="color:var(--text-3); margin-bottom:24px;">Worked everything available for now.</p>
-        <button class="btn-primary" onclick="renderMyLeads()">Check for Updates</button>
+        <button class="btn-primary" onclick="this.innerHTML='Syncing...'; this.disabled=true; typeof loadAllData === 'function' ? loadAllData() : window.location.reload();">Check for Updates</button>
       </div>`;
     return;
   }
@@ -1058,7 +1059,8 @@ function renderMyLeads() {
   //  THE RENDER LOGIC
   // ==========================================
   mainContent.innerHTML = "";
-  const contactsToday = getMyContactsToday();
+  const contactsToday =
+    typeof getMyContactsToday === "function" ? getMyContactsToday() : 0;
   const template = document.getElementById("tmpl-my-leads");
   const clone = template.content.cloneNode(true);
 
@@ -3444,11 +3446,16 @@ async function renderDailyReport() {
     return;
   }
 
+  // 🎨 HELPER: Generates the "Stoplight" color shift
   function getDynamicColor(contacts) {
     let hue = 0;
-    if (contacts <= 25) hue = (contacts / 25) * 60;
-    else if (contacts <= 50) hue = 60 + ((contacts - 25) / 25) * 60;
-    else hue = 120;
+    if (contacts <= 25) {
+      hue = (contacts / 25) * 60; // Red to Yellow
+    } else if (contacts <= 50) {
+      hue = 60 + ((contacts - 25) / 25) * 60; // Yellow to Green
+    } else {
+      hue = 120; // Goal Green
+    }
     return `hsl(${hue}, 80%, 45%)`;
   }
 
@@ -3465,6 +3472,11 @@ async function renderDailyReport() {
       day: "numeric",
     });
 
+    // Generate Agent Options for the dropdown
+    const agentOptions = (State.contractors || [])
+      .map((c) => `<option value="${c.email}">${c.name}</option>`)
+      .join("");
+
     document.getElementById("main-content").innerHTML = `
       <div class="view-header" style="display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 15px;">
         <div>
@@ -3474,11 +3486,26 @@ async function renderDailyReport() {
         
         <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-end;">
           <div style="display: flex; gap: 10px; align-items: center; background: #f8fafc; padding: 10px 15px; border-radius: 8px; border: 1px solid #e2e8f0;">
-            <span style="font-size: 13px; font-weight: 600; color: #475569;">Export Range:</span>
-            <input type="date" id="export-start" style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">
-            <span style="color: #94a3b8; font-size: 13px;">to</span>
-            <input type="date" id="export-end" style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">
-            <button class="btn-ghost" style="background: var(--blue, #2563B0); color: #fff;" onclick="exportDateRangeCSV()" id="btn-export-range">Download CSV</button>
+            
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+               <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Agent Filter</span>
+               <select id="export-agent" style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px; width: 150px;">
+                 <option value="ALL">All Agents</option>
+                 ${agentOptions}
+               </select>
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+               <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">Start Date</span>
+               <input type="date" id="export-start" style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">
+            </div>
+
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+               <span style="font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase;">End Date</span>
+               <input type="date" id="export-end" style="padding: 4px 8px; border: 1px solid #ccc; border-radius: 4px; font-size: 13px;">
+            </div>
+
+            <button class="btn-ghost" style="font-size: 13px; margin-top: 15px;" onclick="exportDateRangeCSV()" id="btn-export-range">Download CSV</button>
           </div>
           <button class="btn-ghost" style="font-size: 13px;" onclick="exportReportCSV()">Export Today Only (.csv)</button>
         </div>
@@ -3499,7 +3526,13 @@ async function renderDailyReport() {
         </div>
         <div class="kpi-card kpi-neutral">
           <span class="kpi-label">Avg Contacts/Agent</span>
-          <span class="kpi-value">${stats.length ? Math.round(stats.reduce((s, a) => s + a.contacts, 0) / stats.length) : 0}</span>
+          <span class="kpi-value">${
+            stats.length
+              ? Math.round(
+                  stats.reduce((s, a) => s + a.contacts, 0) / stats.length,
+                )
+              : 0
+          }</span>
         </div>
       </div>
 
@@ -3521,12 +3554,14 @@ async function renderDailyReport() {
                 stats.length
                   ? stats
                       .map(function (a) {
+                        // Sort actions to find the most recent one
                         const last = a.actions.length
                           ? a.actions.sort(
                               (x, y) =>
                                 new Date(y.timestamp) - new Date(x.timestamp),
                             )[0]
                           : null;
+
                         const statusColor = getDynamicColor(a.contacts);
 
                         return `<tr>
@@ -3561,21 +3596,18 @@ async function renderDailyReport() {
 async function exportDateRangeCSV() {
   const startVal = document.getElementById("export-start").value;
   const endVal = document.getElementById("export-end").value;
+  const agentFilter = document.getElementById("export-agent").value;
   const btn = document.getElementById("btn-export-range");
 
-  if (!startVal || !endVal) {
-    return UI.showToast("Please select both a start and end date.", "warning");
-  }
+  if (!startVal || !endVal)
+    return UI.showToast("Select a date range.", "warning");
 
   const startObj = new Date(startVal);
   startObj.setHours(0, 0, 0, 0);
-
   const endObj = new Date(endVal);
   endObj.setHours(23, 59, 59, 999);
 
-  if (startObj > endObj) {
-    return UI.showToast("Start date cannot be after the end date.", "warning");
-  }
+  if (startObj > endObj) return UI.showToast("Invalid date range.", "warning");
 
   if (btn) {
     btn.disabled = true;
@@ -3583,74 +3615,96 @@ async function exportDateRangeCSV() {
   }
 
   try {
-    const logs = (State.activityLog || []).filter((log) => {
+    // 1. Filter Logs by Date AND Agent
+    let logs = (State.activityLog || []).filter((log) => {
       if (!log.timestamp) return false;
       const logDate = new Date(log.timestamp);
-      return logDate >= startObj && logDate <= endObj;
+      const isWithinDate = logDate >= startObj && logDate <= endObj;
+
+      if (!isWithinDate) return false;
+      if (agentFilter !== "ALL") {
+        return log.agentEmail === agentFilter || log.agent === agentFilter;
+      }
+      return true;
     });
 
-    const calendarDays = Math.max(1, Math.ceil((endObj - startObj) / 86400000));
+    // 2. Generate a reference list of every date in the range
+    const rangeDates = [];
+    let curr = new Date(startObj);
+    while (curr <= endObj) {
+      rangeDates.push(curr.toLocaleDateString());
+      curr.setDate(curr.getDate() + 1);
+    }
+
     const agentData = {};
 
-    // 1. Tally up the data by Agent
+    // 3. Tally Data
     logs.forEach((log) => {
       const email = log.agentEmail || log.agent || "Unknown";
+      const localDateStr = new Date(log.timestamp).toLocaleDateString();
 
       if (!agentData[email]) {
         agentData[email] = {
           agent: email,
           totalContacts: 0,
           totalSales: 0,
+          dailyCounts: {},
+          dailySales: {},
           daysWorked: new Set(),
-          timestampsByDay: {}, // 🚀 NEW: Tracking raw time data
+          timestampsByDay: {},
         };
       }
 
       agentData[email].totalContacts++;
+      agentData[email].dailyCounts[localDateStr] =
+        (agentData[email].dailyCounts[localDateStr] || 0) + 1;
 
       if (
         log.action &&
         (log.action.includes("Sold") || log.action.includes("Sale"))
       ) {
         agentData[email].totalSales++;
+        agentData[email].dailySales[localDateStr] =
+          (agentData[email].dailySales[localDateStr] || 0) + 1;
       }
 
-      const localDateStr = new Date(log.timestamp).toLocaleDateString();
       agentData[email].daysWorked.add(localDateStr);
-
-      // 🚀 NEW: Store the exact millisecond timestamp for this specific day
-      if (!agentData[email].timestampsByDay[localDateStr]) {
+      if (!agentData[email].timestampsByDay[localDateStr])
         agentData[email].timestampsByDay[localDateStr] = [];
-      }
       agentData[email].timestampsByDay[localDateStr].push(
         new Date(log.timestamp).getTime(),
       );
     });
 
-    // 2. Build the CSV Headers
-    const csvRows = [
-      "Agent,Total Contacts,Total Sales,Days Logged In,Avg Contacts/Active Day,Avg Contacts/Calendar Day,Avg Time Between Contacts",
-    ];
+    // 4. Build CSV Rows (Block Format per Agent)
+    const csvRows = [];
 
-    // 3. Process the Data & Calculate Averages
+    // Global Header for the Base Stats
+    csvRows.push(
+      [
+        "Agent",
+        "Total Contacts",
+        "Total Sales",
+        "Overall Close Rate",
+        "Days Logged In",
+        "Avg Contacts/Active Day",
+        "Avg Time Between Contacts",
+      ].join(","),
+    );
+
+    // 5. Build Each Agent's Scorecard Block
     Object.values(agentData).forEach((data) => {
       const activeDays = data.daysWorked.size || 1;
-      const avgPerActiveDay = (data.totalContacts / activeDays).toFixed(1);
-      const avgPerCalendarDay = (data.totalContacts / calendarDays).toFixed(1);
 
-      // 🚀 NEW: The Math Engine for "Time Between Contacts"
-      let totalDiffMs = 0;
-      let diffCount = 0;
-
+      // Calculate Time Gaps (Ignoring lunch/breaks over 2hrs)
+      let totalDiffMs = 0,
+        diffCount = 0;
       Object.values(data.timestampsByDay).forEach((dayTimes) => {
         if (dayTimes.length > 1) {
-          // Sort times from earliest to latest in the day
           dayTimes.sort((a, b) => a - b);
-
           for (let i = 1; i < dayTimes.length; i++) {
             const diff = dayTimes[i] - dayTimes[i - 1];
-            // 🛡️ The Lunch Break Skew Fix: Ignore gaps larger than 2 hours (7,200,000 ms)
-            if (diff < 3000000) {
+            if (diff < 7200000) {
               totalDiffMs += diff;
               diffCount++;
             }
@@ -3658,42 +3712,96 @@ async function exportDateRangeCSV() {
         }
       });
 
-      // Format the result into a readable "Xm Ys" string
       let avgTimeStr = "—";
       if (diffCount > 0) {
         const avgMs = totalDiffMs / diffCount;
-        const avgMins = Math.floor(avgMs / 60000);
-        const avgSecs = Math.floor((avgMs % 60000) / 1000);
-        avgTimeStr = `${avgMins}m ${avgSecs}s`;
+        avgTimeStr = `${Math.floor(avgMs / 60000)}m ${Math.floor((avgMs % 60000) / 1000)}s`;
       }
 
-      // Add to the CSV row
+      const overallCloseRate =
+        data.totalContacts > 0
+          ? Math.round((data.totalSales / data.totalContacts) * 100) + "%"
+          : "0%";
+
+      // ROW 1: The Agent's Base Stats
       csvRows.push(
-        `"${data.agent}",${data.totalContacts},${data.totalSales},${activeDays},${avgPerActiveDay},${avgPerCalendarDay},"${avgTimeStr}"`,
+        [
+          `"${data.agent}"`,
+          data.totalContacts,
+          data.totalSales,
+          `"${overallCloseRate}"`,
+          activeDays,
+          (data.totalContacts / activeDays).toFixed(1),
+          `"${avgTimeStr}"`,
+        ].join(","),
       );
+
+      // Filter out dates where this specific agent made 0 contacts
+      const activeDatesOnly = rangeDates.filter(
+        (dateStr) => (data.dailyCounts[dateStr] || 0) > 0,
+      );
+
+      if (activeDatesOnly.length > 0) {
+        // 🚀 THE NEW SINGLE BLANK ROW: Separates Base Stats from Date Headers
+        csvRows.push("");
+
+        // ROW 2: Date Headers
+        csvRows.push(
+          ["Date", ...activeDatesOnly.map((d) => `"${d}"`)].join(","),
+        );
+
+        // ROW 3: Contacts
+        csvRows.push(
+          ["Contacts", ...activeDatesOnly.map((d) => data.dailyCounts[d])].join(
+            ",",
+          ),
+        );
+
+        // ROW 4: Sales
+        csvRows.push(
+          [
+            "Sales",
+            ...activeDatesOnly.map((d) => data.dailySales[d] || 0),
+          ].join(","),
+        );
+
+        // ROW 5: Close Rate
+        csvRows.push(
+          [
+            "Close Rate",
+            ...activeDatesOnly.map((d) => {
+              const c = data.dailyCounts[d];
+              const s = data.dailySales[d] || 0;
+              return `"${Math.round((s / c) * 100)}%"`;
+            }),
+          ].join(","),
+        );
+      }
+
+      // 🚀 THE TWO BLANK ROWS: Pushing two empty strings creates a double line break between agents
+      csvRows.push("", "");
     });
 
     if (csvRows.length === 1) {
+      // Only headers generated
       if (btn) {
         btn.disabled = false;
         btn.textContent = "Download CSV";
       }
-      return UI.showToast("No activity found for this date range.", "warning");
+      return UI.showToast("No activity found.", "warning");
     }
 
-    // 4. Download Trigger
+    // 6. Download Trigger
     const csvContent = csvRows.join("\n");
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `Range_Report_${startVal}_to_${endVal}.csv`;
-    document.body.appendChild(a);
+    a.download = `Report_${agentFilter}_${startVal}_to_${endVal}.csv`;
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
 
-    UI.showToast("Range report downloaded successfully!", "success");
+    UI.showToast("Report downloaded!", "success");
   } catch (err) {
     console.error("Export failed:", err);
     UI.showToast("Export failed: " + err.message, "error");
