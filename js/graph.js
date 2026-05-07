@@ -944,6 +944,8 @@ const Graph = (() => {
   }
 
   function isInCoolOff(lead) {
+    if (lead.status === "New") return false;
+
     if (!lead.lastContacted) return false;
     const daysSince = (new Date() - new Date(lead.lastContacted)) / 86400000;
     return daysSince < Config.rules.coolOffDays;

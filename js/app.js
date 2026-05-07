@@ -1032,6 +1032,54 @@ function renderMyLeads() {
     });
   }
 
+  const rawMyLeads = State.leads.filter((l) => {
+    const assigned = (l.assignedTo || "")
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .trim();
+    return (
+      assigned &&
+      (assigned === agentName ||
+        assigned === userName ||
+        assigned === userEmail)
+    );
+  });
+
+  console.log("--- QUEUE DIAGNOSTIC ---");
+  console.log(
+    `Total leads technically assigned to this agent in RAM: ${rawMyLeads.length}`,
+  );
+
+  if (rawMyLeads.length > 0) {
+    const terminal = rawMyLeads.filter((l) =>
+      Config.terminalStatuses.includes(l.status),
+    );
+    const coolOff = rawMyLeads.filter(
+      (l) => Graph.isInCoolOff(l) && !l.callbackAt,
+    );
+
+    let futureCBs = 0;
+    rawMyLeads.forEach((l) => {
+      if (l.callbackAt) {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const cb = new Date(l.callbackAt);
+        cb.setHours(0, 0, 0, 0);
+        if (l.status === "Pending Order" ? today <= cb : today < cb)
+          futureCBs++;
+      }
+    });
+
+    console.log(`🚨 Hidden by Terminal Status: ${terminal.length}`);
+    console.log(`🥶 Hidden by 2-Day Cool-Off: ${coolOff.length}`);
+    console.log(`📅 Hidden by Future Callback: ${futureCBs}`);
+  } else {
+    console.log(
+      `❌ ERROR: SharePoint 'assignedTo' does not match the agent's login name/email!`,
+    );
+  }
+  console.log("------------------------");
+
   window._myLeads = myLeads;
   window._agentName = agentName;
   _leadSaved = false;
