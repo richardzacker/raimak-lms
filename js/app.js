@@ -1056,7 +1056,7 @@ function renderMyLeads() {
 
         const localHour = tzHourCache[tz];
         // Only true if it is 9 AM or later, AND before 8 PM
-        const isAwake = localHour >= 9 && localHour < 20;
+        const isAwake = localHour >= 8 && localHour < 20;
 
         if (!isAwake) return false; // 🚫 DROP IT (Too early/late)
       }
@@ -1781,7 +1781,15 @@ async function agentSaveAll(leadId) {
 
   // 1. Grab UI Values
   const mrc = (document.getElementById("feed-mrc") || {}).value || "";
-  const products = (document.getElementById("feed-products") || {}).value || ""; // 🚀 Grabbed
+  const productsSelectEl = document.getElementById("feed-products");
+  let products = "";
+  if (
+    productsSelectEl &&
+    productsSelectEl.options.length > 0 &&
+    productsSelectEl.selectedIndex !== -1
+  ) {
+    products = productsSelectEl.options[productsSelectEl.selectedIndex].value;
+  } // 🚀 Grabbed
   const newNote = (document.getElementById("feed-notes") || {}).value || "";
   const cbr = (document.getElementById("feed-cbr") || {}).value || "";
   const btn = (document.getElementById("feed-btn") || {}).value || "";
